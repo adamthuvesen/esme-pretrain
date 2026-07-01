@@ -5,9 +5,9 @@ its base-model pretraining path: data preparation, tokenizer training, model
 code, training launch checks, checkpoint evaluation, acceptance reporting, and
 export to `llm-infer`.
 
-## Why 214M?
+### Why 214M?
 
-Esme-214M is intentionally small. That makes the full LLM lifecycle easier to
+Esme-214M is intentionally small for learning purposes. That makes the full LLM lifecycle easier to
 build, keeps iteration fast and costs low, and makes failures easier to
 diagnose, while still going through real training, evaluation, export,
 post-training, and inference.
