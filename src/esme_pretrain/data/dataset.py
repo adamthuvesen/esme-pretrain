@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from importlib.resources import files
 
-from esme_pretrain.tokenization.tokenizer import CharTokenizer
 from esme_pretrain.torch import torch
 
 
@@ -15,10 +13,6 @@ class PackedTokens:
     @property
     def rows(self) -> int:
         return int(self.inputs.shape[0])
-
-
-def read_pilot_corpus() -> str:
-    return files("esme_pretrain").joinpath("data/pilot_corpus.txt").read_text(encoding="utf-8")
 
 
 def pack_token_ids(token_ids: list[int], context_length: int) -> PackedTokens:
@@ -38,29 +32,9 @@ def pack_token_ids(token_ids: list[int], context_length: int) -> PackedTokens:
             target_rows.append(window[1:])
 
     if not input_rows:
-        raise ValueError("pilot corpus did not produce any packed token rows")
+        raise ValueError("token ids did not produce any packed rows")
 
     return PackedTokens(
         inputs=torch.tensor(input_rows, dtype=torch.long),
         targets=torch.tensor(target_rows, dtype=torch.long),
     )
-
-
-def build_pilot_datasets(
-    text: str,
-    tokenizer: CharTokenizer,
-    context_length: int,
-    validation_fraction: float = 0.2,
-) -> tuple[PackedTokens, PackedTokens]:
-    if not 0 < validation_fraction < 1:
-        raise ValueError("validation fraction must be between 0 and 1")
-
-    token_ids = tokenizer.encode(text)
-    split_at = int(len(token_ids) * (1 - validation_fraction))
-    split_at -= split_at % context_length
-    if split_at <= context_length or len(token_ids) - split_at <= context_length:
-        raise ValueError("pilot corpus is too small for the requested split and context length")
-
-    train = pack_token_ids(token_ids[:split_at], context_length)
-    validation = pack_token_ids(token_ids[split_at:], context_length)
-    return train, validation

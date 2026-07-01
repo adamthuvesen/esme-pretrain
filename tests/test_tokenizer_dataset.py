@@ -1,6 +1,6 @@
 import pytest
 
-from esme_pretrain.data.dataset import build_pilot_datasets, pack_token_ids
+from esme_pretrain.data.dataset import pack_token_ids
 from esme_pretrain.tokenization.tokenizer import CharTokenizer, PairMergeTokenizer
 
 
@@ -40,14 +40,3 @@ def test_pack_token_ids_builds_next_token_windows() -> None:
 
     assert packed.inputs.tolist() == [[0, 1], [2, 3]]
     assert packed.targets.tolist() == [[1, 2], [3, 4]]
-
-
-def test_build_pilot_datasets_splits_train_and_validation() -> None:
-    text = "abcd" * 40
-    tokenizer = CharTokenizer.from_text(text)
-
-    train, validation = build_pilot_datasets(text, tokenizer, context_length=8)
-
-    assert train.rows > validation.rows
-    assert train.inputs.shape[1] == 8
-    assert validation.targets.shape[1] == 8

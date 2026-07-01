@@ -103,8 +103,8 @@ class StreamingBatchLoader:
         self.pin_memory = pin_memory and self.device.type == "cuda"
         self.prefetch_batches = prefetch_batches
         self.skip_tokens = skip_tokens
-        # Tokens handed to the consumer so far (post-skip); the loop reads this to
-        # persist the next resume offset (skip_tokens + tokens_yielded).
+        # Tokens handed to the consumer so far (post-skip); skip_tokens + tokens_yielded
+        # is the stream offset a resume of this exact stream would need.
         self.tokens_yielded = 0
 
     def __iter__(self) -> Iterator[Batch]:
