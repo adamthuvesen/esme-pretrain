@@ -28,7 +28,6 @@ LAB_MODEL_CONFIG = BackboneConfig(
     attention_kind="mha",
     qk_norm=False,
     z_loss_weight=0.0,
-    logit_soft_cap=0.0,
 )
 
 
@@ -274,7 +273,7 @@ def _set_determinism(seed: int) -> None:
 
 def _loss(model: DenseBackbone, batch: PackedTokens) -> torch.Tensor:
     logits = model(batch.inputs)
-    loss, _ = language_model_loss(logits, batch.targets, z_loss_weight=0.0, logit_soft_cap=0.0)
+    loss, _ = language_model_loss(logits, batch.targets, z_loss_weight=0.0)
     return loss
 
 

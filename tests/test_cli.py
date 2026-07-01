@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from esme_pretrain.cli import main, run_doctor
-from esme_pretrain.launch.pretrain import load_pretrain_config
+from esme_pretrain.pretrain_run import load_pretrain_config
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_214M_B200 = Path("configs/pretrain_214m_b200.json")

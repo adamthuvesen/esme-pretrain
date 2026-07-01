@@ -9,7 +9,7 @@
 | Current state, accepted run, next step           | `docs/status.md`                              |
 | Model, data, training, eval, export design       | `docs/architecture.md`                        |
 | 214M B200 config, budget, artifacts, abort rules | `docs/run-cards/pretrain-214m-b200.md`        |
-| GPU selection and Modal safety                   | `docs/reports/pretrain-214m-b200-gpu-gate.md` |
+| GPU selection and Modal safety                   | `docs/internal/pretrain-214m-b200-hardware-measurements.md` |
 | CLI surface and quick commands                   | `README.md`                                   |
 
 If docs and code disagree, fix the stale doc in the same change.

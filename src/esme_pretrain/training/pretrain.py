@@ -239,7 +239,6 @@ def _accumulate_gradients(
                 logits,
                 batch.targets,
                 z_loss_weight=config.model.z_loss_weight,
-                logit_soft_cap=config.model.logit_soft_cap,
             )
         (loss / config.grad_accum_steps).backward()
         micro_losses.append(components["total_loss"])
@@ -266,13 +265,8 @@ def evaluate(
     *,
     batches: int,
     autocast: Any,
-    logit_soft_cap: float = 0.0,
 ) -> float | None:
-    """Mean cross-entropy over a bounded number of eval batches (pure CE, no z-loss).
-
-    CE is taken on the soft-capped logits (``logit_soft_cap``), matching the
-    capped distribution the model is trained on, so train and eval CE are comparable.
-    """
+    """Mean cross-entropy over a bounded number of eval batches (pure CE, no z-loss)."""
     if batches < 1:
         return None
     was_training = model.training
@@ -293,7 +287,6 @@ def evaluate(
         pairs,
         device=next(model.parameters()).device,
         autocast=autocast,
-        logit_soft_cap=logit_soft_cap,
     )
     if was_training:
         model.train()
@@ -343,6 +336,8 @@ def run_pretrain(
     resume_data_offset = 0
     if config.resume_from is not None:
         loaded = load_pretrain_checkpoint(config.resume_from, map_location=device)
+        if loaded.config != config.model:
+            raise ValueError("resume checkpoint config does not match requested pretrain config")
         model.load_state_dict(loaded.model.state_dict())
         model.to(device)
         start_step = loaded.step
@@ -429,7 +424,14 @@ def run_pretrain(
             break
 
         step_loss, components = accumulated
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+        if not math.isfinite(step_loss):
+            raise RuntimeError(f"non-finite train loss at step {step}: {step_loss}")
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), config.grad_clip, error_if_nonfinite=True
+        )
+        grad_norm_last = float(grad_norm)
+        if not math.isfinite(grad_norm_last):
+            raise RuntimeError(f"non-finite gradient norm at step {step}: {grad_norm_last}")
         optimizer.step()
 
         if is_cuda:
@@ -437,17 +439,17 @@ def run_pretrain(
         step_time = time.perf_counter() - step_start
 
         train_losses.append(step_loss)
-        grad_norm_last = float(grad_norm)
         tokens_per_second = config.tokens_per_step / step_time
         # Skip the first compiled step (graph capture) from steady-state stats.
         if not (compiled and step == start_step):
             tokens_per_second_samples.append(tokens_per_second)
             step_time_samples.append(step_time * 1000.0)
         mfu = (tokens_per_second * flops_per_token / 1e12) / peak_tflops if peak_tflops else None
-        final_step = step + 1
+        completed_step = step + 1
+        final_step = completed_step
 
-        is_last = step + 1 == config.max_steps
-        if step % config.log_interval == 0 or is_last:
+        is_last = completed_step == config.max_steps
+        if completed_step % config.log_interval == 0 or is_last:
             metrics: dict[str, Any] = {
                 "loss": step_loss,
                 "ce_loss": components["ce_loss"],
@@ -462,13 +464,13 @@ def run_pretrain(
                 metrics["z_loss"] = components["z_loss"]
             if is_cuda:
                 metrics["gpu_mem_gb"] = torch.cuda.max_memory_allocated(device) / (1024**3)
-            logger.log(step, metrics)
+            logger.log(completed_step, metrics)
 
         should_eval = (
             eval_loader is not None
             and config.eval_interval > 0
             and config.eval_batches > 0
-            and (step % config.eval_interval == 0 or is_last)
+            and (completed_step % config.eval_interval == 0 or is_last)
         )
         if should_eval:
             val = evaluate(
@@ -476,38 +478,37 @@ def run_pretrain(
                 eval_loader,
                 batches=config.eval_batches,
                 autocast=autocast,
-                logit_soft_cap=config.model.logit_soft_cap,
             )
             if val is not None:
                 val_first = val if val_first is None else val_first
                 val_last = val
-                logger.log(step, {"val_loss": val})
+                logger.log(completed_step, {"val_loss": val})
 
-        if config.sample_interval > 0 and (step % config.sample_interval == 0 or is_last):
+        if config.sample_interval > 0 and (completed_step % config.sample_interval == 0 or is_last):
             samples = _generate_samples(model, config, device)
             if samples:
                 logger.log_samples(
-                    step, prompt=str(list(config.sample_prompt_ids)), samples=samples
+                    completed_step, prompt=str(list(config.sample_prompt_ids)), samples=samples
                 )
 
         should_checkpoint = (
             config.checkpoint_interval > 0
-            and step > start_step
-            and step % config.checkpoint_interval == 0
+            and completed_step > start_step
+            and completed_step % config.checkpoint_interval == 0
         )
         if should_checkpoint:
             save_pretrain_checkpoint(
-                config.output_dir / f"checkpoint-step{step}.pt",
+                config.output_dir / f"checkpoint-step{completed_step}.pt",
                 model=model,
                 config=config.model,
-                step=step + 1,
+                step=completed_step,
                 optimizer=optimizer,
                 metrics={"loss": step_loss},
                 # Total source tokens consumed after this step; resume skips them.
                 data_offset_tokens=_data_offset_tokens(
                     config,
                     start_step=start_step,
-                    completed_step=step + 1,
+                    completed_step=completed_step,
                     resume_data_offset=resume_data_offset,
                 ),
                 rng_state=capture_rng_state(),

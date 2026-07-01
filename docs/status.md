@@ -1,6 +1,6 @@
 # Status
 
-`Esme-214M-Base` is the accepted base checkpoint from the `214M B200` 10B-token
+`Esme-214M-Base` is the current base checkpoint from the `214M B200` 10B-token
 pretraining run.
 
 It is a 213,960,192-parameter dense decoder-only transformer trained from
@@ -8,7 +8,7 @@ scratch on FineWeb-Edu `sample-10BT`. The public label is `10B` tokens; the
 exact configured budget is `10,229,514,240` tokens over `26,015` optimizer
 steps.
 
-## Accepted Run Shape
+## Current Run Shape
 
 - Config: `configs/pretrain_214m_b200.json`
 - Dataset: `HuggingFaceFW/fineweb-edu`, subset `sample-10BT`, revision
@@ -22,8 +22,8 @@ steps.
 
 ## Handoff
 
-The accepted base has checkpoint evaluation, bits-per-byte reporting, an
-acceptance report, and an exported `llm-infer` bundle. The next model work is
+The base checkpoint has evaluation, bits-per-byte reporting, a summary report,
+and an exported `llm-infer` bundle. The next model work is
 posttraining in `esme-posttrain`, not another pretraining launch.
 
 ## Safety

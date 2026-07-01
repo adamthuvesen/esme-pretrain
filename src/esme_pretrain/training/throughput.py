@@ -123,8 +123,7 @@ def run_throughput_probe(config: ProbeConfig) -> ProbeResult:
         raise RuntimeError("cuda device requested but torch.cuda.is_available() is False")
 
     if is_cuda:
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+        torch.set_float32_matmul_precision("high")
 
     dtype = _resolve_dtype(config.dtype)
     autocast_enabled = is_cuda and dtype in (torch.bfloat16, torch.float16)

@@ -75,3 +75,15 @@ def test_unsupported_format_raises(tmp_path: Path) -> None:
     torch.save({"format_version": 999}, path)
     with pytest.raises(ValueError, match="unsupported pretrain checkpoint format"):
         load_pretrain_checkpoint(path)
+
+
+def test_checkpoint_load_rejects_extra_keys(tmp_path: Path) -> None:
+    config = _tiny()
+    path = tmp_path / "checkpoint.pt"
+    save_pretrain_checkpoint(path, model=DenseBackbone(config), config=config, step=1)
+    payload = torch.load(path, map_location="cpu", weights_only=False)
+    payload["legacy_note"] = "do not accept unversioned schema drift"
+    torch.save(payload, path)
+
+    with pytest.raises(ValueError, match="unexpected keys.*legacy_note"):
+        load_pretrain_checkpoint(path)

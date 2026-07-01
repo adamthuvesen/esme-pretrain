@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.launch.pretrain import EXPECTED_ARTIFACTS, PretrainLaunchConfig
+from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS, PretrainLaunchConfig
 from esme_pretrain.torch import torch
 
 

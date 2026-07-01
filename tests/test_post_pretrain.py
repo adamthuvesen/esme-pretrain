@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,7 +39,6 @@ def _tiny_config() -> BackboneConfig:
         layers=1,
         heads=4,
         feedforward_dim=32,
-        logit_soft_cap=0.0,
         z_loss_weight=0.0,
     )
 
@@ -81,7 +82,7 @@ def test_two_tiny_checkpoints_evaluate_on_identical_token_batches(tmp_path: Path
     assert first_result.checkpoint_step == 1
     assert second_result.checkpoint_step == 2
     assert first_result.bits_per_byte == pytest.approx(
-        first_result.ce_loss / math.log(2) / first_result.eval_bytes
+        first_result.ce_loss * first_result.eval_tokens / math.log(2) / first_result.eval_bytes
     )
 
 
@@ -221,13 +222,14 @@ def test_acceptance_report_succeeds_with_fixture_artifacts(tmp_path: Path) -> No
     )
 
 
-def test_export_round_trip_preserves_logits(tmp_path: Path) -> None:
+def test_export_round_trip_preserves_logits(tmp_path: Path, monkeypatch) -> None:
     config = _tiny_config()
     checkpoint = tmp_path / "checkpoint.pt"
     tokenizer = tmp_path / "tokenizer.json"
     tokenizer.write_text('{"kind":"synthetic"}', encoding="utf-8")
     model = DenseBackbone(config)
     save_pretrain_checkpoint(checkpoint, model=model, config=config, step=9)
+    _install_fake_tokenizers(monkeypatch, tokenizer, vocab_size=config.vocab_size)
 
     input_ids = torch.arange(0, 16, dtype=torch.long).view(2, 8) % config.vocab_size
     with torch.no_grad():
@@ -277,6 +279,42 @@ def test_export_round_trip_preserves_logits(tmp_path: Path) -> None:
     assert "native esme-pretrain DenseBackbone config" in readme
     assert manifest["files"]["weights"]["sha256"]
     assert torch.allclose(expected, actual, atol=1e-6)
+
+
+def test_export_rejects_tokenizer_vocab_drift(tmp_path: Path, monkeypatch) -> None:
+    config = _tiny_config()
+    checkpoint = tmp_path / "checkpoint.pt"
+    tokenizer = tmp_path / "tokenizer.json"
+    tokenizer.write_text('{"kind":"synthetic"}', encoding="utf-8")
+    save_pretrain_checkpoint(checkpoint, model=DenseBackbone(config), config=config, step=9)
+    _install_fake_tokenizers(monkeypatch, tokenizer, vocab_size=config.vocab_size + 1)
+
+    with pytest.raises(ValueError, match="tokenizer vocab size does not match"):
+        export_checkpoint(
+            ExportConfig(
+                checkpoint_path=checkpoint,
+                tokenizer_path=tokenizer,
+                output_dir=tmp_path / "export",
+                export_format="llm-infer",
+            )
+        )
+
+
+def _install_fake_tokenizers(monkeypatch, tokenizer_path: Path, *, vocab_size: int) -> None:
+    class FakeTokenizer:
+        @classmethod
+        def from_file(cls, path: str):
+            assert path == str(tokenizer_path)
+            return cls()
+
+        def get_vocab_size(self) -> int:
+            return vocab_size
+
+        def token_to_id(self, token: str) -> int | None:
+            special_tokens = {"<pad>": 0, "<bos>": 1, "<eos>": 2, "<unk>": 3}
+            return special_tokens.get(token)
+
+    monkeypatch.setitem(sys.modules, "tokenizers", SimpleNamespace(Tokenizer=FakeTokenizer))
 
 
 def _write_required_run_artifacts(run_dir: Path) -> None:

@@ -5,7 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-from esme_pretrain.launch.pretrain import build_pretrain_dry_run, load_pretrain_config
+from esme_pretrain.launch.pretrain import build_pretrain_dry_run
+from esme_pretrain.pretrain_run import load_pretrain_config
 
 
 def add_pretrain_parser(subparsers: argparse._SubParsersAction) -> None:

@@ -13,6 +13,7 @@ from esme_pretrain.torch import torch
 EXPORT_FORMAT_VERSION = 1
 CANONICAL_BUNDLE_FORMAT = "llm_pretrain_dense_v1"
 LLM_INFER_TARGET = "llm-infer"
+EXPORT_SPECIAL_TOKENS = ("<pad>", "<bos>", "<eos>", "<unk>")
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
         raise ValueError(f"tokenizer does not exist: {config.tokenizer_path}")
 
     loaded = load_pretrain_checkpoint(config.checkpoint_path)
+    _validate_export_tokenizer(config.tokenizer_path, loaded.config.vocab_size)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     config_payload = loaded.config.to_dict()
@@ -107,12 +109,32 @@ def _llm_infer_model_config(config: dict[str, Any]) -> dict[str, Any]:
         "rms_norm_eps": config["rms_norm_eps"],
         "rope_theta": config["rope_theta"],
         "tie_word_embeddings": config["tie_embeddings"],
-        "logit_soft_cap": config["logit_soft_cap"],
         "attention_kind": config["attention_kind"],
         "qk_norm": config["qk_norm"],
         "z_loss_weight": config["z_loss_weight"],
-        "mtp_predict_tokens": config["mtp_predict_tokens"],
     }
+
+
+def _validate_export_tokenizer(tokenizer_path: Path, vocab_size: int) -> None:
+    try:
+        from tokenizers import Tokenizer
+    except ModuleNotFoundError as error:
+        raise ValueError(
+            "tokenizers is required to validate tokenizer.json before export"
+        ) from error
+
+    try:
+        tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    except Exception as error:  # noqa: BLE001 - tokenizers raises several parse errors.
+        raise ValueError(f"tokenizer is not a valid tokenizers JSON: {tokenizer_path}") from error
+    if tokenizer.get_vocab_size() != vocab_size:
+        raise ValueError(
+            "tokenizer vocab size does not match checkpoint config: "
+            f"{tokenizer.get_vocab_size()} != {vocab_size}"
+        )
+    missing = [token for token in EXPORT_SPECIAL_TOKENS if tokenizer.token_to_id(token) is None]
+    if missing:
+        raise ValueError(f"tokenizer is missing required special tokens: {missing}")
 
 
 def _sibling_run_metadata(checkpoint_path: Path) -> dict[str, Any]:

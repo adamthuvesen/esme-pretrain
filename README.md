@@ -1,9 +1,9 @@
 # esme-pretrain
 
-`Esme-214M-Base` is a language model trained from scratch. `esme-pretrain` owns
-its base-model pretraining path: data preparation, tokenizer training, model
-code, training launch checks, checkpoint evaluation, acceptance reporting, and
-export to `llm-infer`.
+`Esme-214M-Base` is a language model trained from scratch. `esme-pretrain`
+contains the base-model pretraining code: data preparation, tokenizer training,
+model code, training checks, checkpoint evaluation, reporting, and export to
+`llm-infer`.
 
 ### Why 214M?
 
@@ -21,7 +21,7 @@ trained from scratch on FineWeb-Edu `sample-10BT`. The public training label is
 `10B` tokens; the exact configured budget is `10,229,514,240` tokens over
 `26,015` optimizer steps.
 
-The base-model handoff is complete. The next model work is posttraining in
+The base model is ready for downstream work. The next model work is posttraining in
 `esme-posttrain`, not another pretraining launch.
 
 ## What Is Here
@@ -33,9 +33,8 @@ The base-model handoff is complete. The next model work is posttraining in
   `BackboneConfig`.
 - Training code with checkpoint/resume checks, fixed validation batches, local
   metrics, and optional W&B logging.
-- Approval-gated launch code for the current `214M B200` run shape.
-- Post-run evaluation, acceptance reporting, bits-per-byte reporting, and
-  `llm-infer` export.
+- Approval-gated training entrypoints for the current `214M B200` shape.
+- Post-training evaluation, bits-per-byte reporting, and `llm-infer` export.
 
 Active code lives in [`src/esme_pretrain/`](src/esme_pretrain/).
 
@@ -96,7 +95,7 @@ uv run esme-pretrain export --checkpoint <selected-checkpoint.pt> --tokenizer <r
 ## Full Pretraining
 
 Full pretraining is approval-gated. Do not launch FineWeb-Edu, ClimbMix, Modal,
-GPU, W&B write, or paid API work without explicit chat approval.
+GPU, W&B write, or paid API work without explicit approval.
 
 A full launch needs the exact command, hardware target, cost cap, approval
 record, and `--approved` flag. Long paid runs should use detached Modal launch
@@ -109,7 +108,11 @@ Keep runtime and secret material ignored:
 - `runs/`
 - `checkpoints/`
 - `exports/`
+- `outputs/`
+- `payloads/`
 - `wandb/`
+- `.modal/`
+- `logs/`
 - `.env*`
 - raw or processed training data
 
@@ -120,9 +123,6 @@ tokenizer contract, GPU choice, or cost cap are new run decisions.
 
 - Current state: [`docs/status.md`](docs/status.md)
 - Model and training design: [`docs/architecture.md`](docs/architecture.md)
-
-Detailed approval and measurement records live under `docs/` for operators who
-need to reproduce the base checkpoint.
 
 ## Related Repos
 

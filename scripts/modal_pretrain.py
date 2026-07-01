@@ -10,10 +10,8 @@ from esme_pretrain.launch.modal_pretrain_body import (
     REPO_ROOT,
     VOLUME_MOUNT,
     _run_pretrain_launch_body,
-    build_parser,
     launch,
 )
-from esme_pretrain.launch.modal_tokenizer import _load_or_train_tokenizer, _train_tokenizer
 from esme_pretrain.launch.pretrain import LAUNCH_APPROVAL_FLAG
 
 PRETRAIN_GPU = os.environ.get("PRETRAIN_GPU", "H100")
@@ -68,18 +66,6 @@ if modal is not None:  # pragma: no cover - exercised by Modal, not local unit t
             argv.append("--json")
         argv.append("--spawn" if spawn else "--no-spawn")
         raise SystemExit(launch(argv, run_pretrain_launch=run_pretrain_launch))
-
-
-# Re-export helpers exercised by tests that import this script via importlib.
-from esme_pretrain.launch.modal_pretrain_body import _wandb_resume_run_id  # noqa: E402
-
-__all__ = [
-    "_load_or_train_tokenizer",
-    "_train_tokenizer",
-    "_wandb_resume_run_id",
-    "build_parser",
-    "launch",
-]
 
 
 if __name__ == "__main__":

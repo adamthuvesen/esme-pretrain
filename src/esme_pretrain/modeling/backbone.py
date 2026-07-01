@@ -22,9 +22,8 @@ class BackboneConfig:
 
     ``feedforward_dim`` follows the standard SwiGLU convention (~8/3 * embedding_dim,
     rounded to a hardware-friendly multiple), so the three SwiGLU matrices match a
-    classic 4*d feed-forward in FLOPs. The stability optionals (``qk_norm``,
-    ``logit_soft_cap``, ``z_loss_weight``) and the ``attention_kind`` /
-    ``mtp_predict_tokens`` hooks default to the accepted GQA baseline.
+    classic 4*d feed-forward in FLOPs. The stability options (``qk_norm`` and
+    ``z_loss_weight``) default to the accepted GQA baseline.
     """
 
     name: str
@@ -39,13 +38,8 @@ class BackboneConfig:
     rms_norm_eps: float = 1e-6
     tie_embeddings: bool = True
     qk_norm: bool = True
-    # Final-logit soft cap (cap * tanh(logits / cap)); 0 disables it (the default).
-    logit_soft_cap: float = 0.0
-    # Coefficient on the final-logit z-loss; 0 disables it.
     z_loss_weight: float = 1e-4
-    attention_kind: str = "gqa"  # "mha" | "gqa" (baseline) | "mla" (future ablation)
-    # Extra future tokens an MTP head would predict; 0 = no MTP head (baseline).
-    mtp_predict_tokens: int = 0
+    attention_kind: str = "gqa"  # "mha" | "gqa" (baseline)
 
     def __post_init__(self) -> None:
         if self.embedding_dim % self.heads != 0:
@@ -58,12 +52,8 @@ class BackboneConfig:
             raise ValueError("attention_kind='mha' requires kv_heads to equal heads")
         if self.context_length < 2:
             raise ValueError("context_length must be at least 2")
-        if self.logit_soft_cap < 0:
-            raise ValueError("logit_soft_cap must be non-negative (0 disables)")
         if self.z_loss_weight < 0:
             raise ValueError("z_loss_weight must be non-negative (0 disables)")
-        if self.mtp_predict_tokens < 0:
-            raise ValueError("mtp_predict_tokens must be non-negative (0 disables)")
         if self.attention_kind not in ATTENTION_VARIANTS:
             raise ValueError(
                 f"attention_kind must be one of {sorted(ATTENTION_VARIANTS)}, "
@@ -121,8 +111,8 @@ class CausalSelfAttention(torch.nn.Module):
     An attention variant maps a pre-normed residual stream to an attention output
     of the same shape, given the precomputed RoPE tables:
     ``forward(hidden[B, T, D], cos[T, head_dim], sin[T, head_dim]) -> [B, T, D]``.
-    Swapping GQA for MLA is changing which subclass :func:`build_attention` returns
-    — nothing else in the model moves. Subclasses take a :class:`BackboneConfig`.
+    Swapping MHA and GQA changes which subclass :func:`build_attention` returns;
+    nothing else in the model moves. Subclasses take a :class:`BackboneConfig`.
     """
 
     def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
@@ -203,53 +193,14 @@ class GroupedQueryAttention(CausalSelfAttention):
         return self.wo(attention)
 
 
-class MultiHeadLatentAttention(CausalSelfAttention):
-    """MLA placeholder (multi-head latent attention), reserved for a future ablation.
-
-    The accepted run uses GQA. This placeholder marks where a low-rank KV latent
-    with decoupled RoPE would land: project hidden -> a small KV latent
-    (``kv_lora_rank``), cache only that latent, and carry RoPE on a separate
-    decoupled head so the cache stays rotation-free. It honours the
-    :class:`CausalSelfAttention` contract, so swapping it in needs no change
-    outside this module.
-    """
-
-    def __init__(self, config: BackboneConfig) -> None:
-        super().__init__()
-        raise NotImplementedError(
-            "MLA is a future ablation; the locked keystone uses attention_kind='gqa'. "
-            "Implement the low-rank KV latent + decoupled RoPE here when that ablation runs."
-        )
-
-
-# Attention registry: flip BackboneConfig.attention_kind to swap variants.
 ATTENTION_VARIANTS: dict[str, type[CausalSelfAttention]] = {
     "mha": MultiHeadAttention,
     "gqa": GroupedQueryAttention,
-    "mla": MultiHeadLatentAttention,
 }
 
 
 def build_attention(config: BackboneConfig) -> CausalSelfAttention:
-    """Construct the configured attention module."""
     return ATTENTION_VARIANTS[config.attention_kind](config)
-
-
-class MultiTokenPredictionHead(torch.nn.Module):
-    """MTP head placeholder, reserved for a future ablation.
-
-    When enabled it predicts the next ``mtp_predict_tokens`` future tokens from the
-    final hidden state (multi-token prediction), doubling as the draft model
-    for ``llm-infer`` speculative decoding. The baseline leaves it off
-    (``mtp_predict_tokens = 0``); this class marks the clean attach point.
-    """
-
-    def __init__(self, config: BackboneConfig) -> None:
-        super().__init__()
-        raise NotImplementedError(
-            "MTP is a future ablation; the baseline uses mtp_predict_tokens=0. "
-            "Implement the auxiliary next-N prediction modules here when that ablation runs."
-        )
 
 
 class DecoderBlock(torch.nn.Module):
@@ -277,8 +228,6 @@ class DenseBackbone(torch.nn.Module):
         self.lm_head = torch.nn.Linear(config.embedding_dim, config.vocab_size, bias=False)
         if config.tie_embeddings:
             self.lm_head.weight = self.token_embedding.weight
-        # The MTP hook: None for the baseline, an attach point otherwise.
-        self.mtp_head = MultiTokenPredictionHead(config) if config.mtp_predict_tokens > 0 else None
         cos, sin = build_rope_cache(
             config.context_length, config.head_dim, config.rope_theta, torch.device("cpu")
         )
@@ -307,15 +256,7 @@ class DenseBackbone(torch.nn.Module):
                 block.feedforward.w_down.weight.mul_(scale)
 
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
-        """Return **raw** (pre-soft-cap) logits.
-
-        Soft-capping is *not* applied here: the z-loss in :func:`language_model_loss`
-        must see the raw logits to be a real regularizer (capping makes
-        ``logsumexp`` bounded by construction, collapsing its gradient — see that
-        function's docstring), and the loss applies the cap to the CE path itself.
-        For sampling, :meth:`generate` applies the cap explicitly so generation
-        matches the training-time (capped) distribution.
-        """
+        """Return raw logits."""
         if input_ids.ndim != 2:
             raise ValueError("input ids must have shape [batch, sequence]")
         seq = input_ids.shape[1]
@@ -344,14 +285,10 @@ class DenseBackbone(torch.nn.Module):
         was_training = self.training
         self.eval()
         ctx = self.config.context_length
-        cap = self.config.logit_soft_cap
         generated = input_ids
         for _ in range(max_new_tokens):
             conditioned = generated[:, -ctx:]
-            # forward() returns raw logits; apply the same soft cap the loss uses so
-            # the sampled distribution matches training. (argmax is cap-invariant, but
-            # temperature/top-k sampling is not.)
-            next_logits = soft_cap_logits(self(conditioned)[:, -1, :], cap)
+            next_logits = self(conditioned)[:, -1, :]
             if temperature <= 0.0:
                 next_id = next_logits.argmax(dim=-1, keepdim=True)
             else:
@@ -367,52 +304,21 @@ class DenseBackbone(torch.nn.Module):
         return generated
 
 
-def soft_cap_logits(logits: torch.Tensor, cap: float) -> torch.Tensor:
-    """Final-logit soft cap: ``cap * tanh(logits / cap)``; pass cap<=0 to skip (identity)."""
-    if cap <= 0.0:
-        return logits
-    return cap * torch.tanh(logits / cap)
-
-
 def language_model_loss(
     logits: torch.Tensor,
     targets: torch.Tensor,
     *,
     z_loss_weight: float = 0.0,
-    logit_soft_cap: float = 0.0,
     ignore_index: int = -100,
 ) -> tuple[torch.Tensor, dict[str, float]]:
-    """Next-token cross-entropy (on soft-capped logits) plus an optional z-loss
-    (on the **raw**, pre-cap logits).
-
-    ``logits`` are the model's **raw** outputs; ``forward`` emits raw logits and this
-    function applies the cap. The two terms deliberately see different tensors:
-
-    * **CE** runs on the soft-capped logits (``cap * tanh(raw / cap)``), the
-      distribution the model is actually trained to predict. ``CE = mean(logsumexp(
-      capped) - capped[target])``.
-    * **z-loss** runs on the **raw** logits: ``z_loss_weight * mean(logsumexp(raw)^2)``.
-      Splitting the tensors matters because soft-capping bounds ``logsumexp`` by
-      construction (``<= log(V) + cap``), so a z-loss on capped logits has a near-zero
-      gradient to the raw pre-cap logits and stops regularizing them. On the raw logits
-      it is a real penalty that keeps the pre-cap magnitudes (and thus the softmax
-      denominator) small.
-
-    The loss math runs in fp32 (the raw logits are upcast first) for a numerically
-    stable loss even when the model ran in bf16; the cap is applied to those fp32
-    raw logits. When ``z_loss_weight == 0`` only the CE ``logsumexp`` runs (one
-    pass over the [N, V] hotspot); the z-loss adds one more ``logsumexp`` over the
-    raw logits when z-loss is enabled. Returns the total loss plus detached
-    components for logging.
-    """
+    """Next-token cross-entropy plus optional z-loss on raw logits."""
     raw_logits = logits.reshape(-1, logits.shape[-1]).float()
-    capped_logits = soft_cap_logits(raw_logits, logit_soft_cap)
     flat_targets = targets.reshape(-1)
     valid = flat_targets != ignore_index
 
-    log_z = torch.logsumexp(capped_logits, dim=-1)  # [N], the CE denominator
+    log_z = torch.logsumexp(raw_logits, dim=-1)  # [N], the CE denominator
     # clamp_min(0) keeps gather in range for ignored positions; they are masked out.
-    target_logits = capped_logits.gather(-1, flat_targets.clamp_min(0).unsqueeze(-1)).squeeze(-1)
+    target_logits = raw_logits.gather(-1, flat_targets.clamp_min(0).unsqueeze(-1)).squeeze(-1)
     negative_log_likelihood = (log_z - target_logits)[valid]
     if negative_log_likelihood.numel() == 0:
         # No supervised positions (degenerate batch): a graph-connected zero, and z-loss
@@ -426,9 +332,7 @@ def language_model_loss(
     components = {"ce_loss": float(cross_entropy.detach())}
     total = cross_entropy
     if z_loss_weight > 0.0:
-        # z-loss on the RAW logits so it actually penalizes the pre-cap magnitudes.
-        raw_log_z = torch.logsumexp(raw_logits, dim=-1)  # [N]
-        z_loss = z_loss_weight * (raw_log_z[valid] ** 2).mean()
+        z_loss = z_loss_weight * (log_z[valid] ** 2).mean()
         total = total + z_loss
         components["z_loss"] = float(z_loss.detach())
     components["total_loss"] = float(total.detach())
@@ -451,7 +355,6 @@ BACKBONE_CONFIGS: dict[str, BackboneConfig] = {
         kv_heads=3,
         feedforward_dim=1760,
         attention_kind="gqa",
-        logit_soft_cap=0.0,  # disabled; QK-norm plus z-loss are the active guards
     ),
     "214M": BackboneConfig(
         name="214M",
@@ -463,7 +366,6 @@ BACKBONE_CONFIGS: dict[str, BackboneConfig] = {
         kv_heads=4,
         feedforward_dim=2048,
         attention_kind="gqa",
-        logit_soft_cap=0.0,
     ),
 }
 
@@ -481,8 +383,6 @@ def _probe_config(**fields: Any) -> BackboneConfig:
         attention_kind="mha",
         qk_norm=False,
         z_loss_weight=0.0,
-        logit_soft_cap=0.0,
-        mtp_predict_tokens=0,
         **fields,
     )
 

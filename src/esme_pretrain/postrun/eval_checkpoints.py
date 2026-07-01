@@ -12,9 +12,9 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from esme_pretrain.data.corpus_stream import document_text_stream
-from esme_pretrain.launch.pretrain import PretrainLaunchConfig, load_pretrain_config
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
+from esme_pretrain.pretrain_run import PretrainLaunchConfig, load_pretrain_config
 from esme_pretrain.torch import torch
 from esme_pretrain.training.eval_batch import mean_ce_loss
 
@@ -253,13 +253,14 @@ def evaluate_checkpoint(
         model,
         pairs,
         device=device,
-        logit_soft_cap=loaded.config.logit_soft_cap,
     )
     if ce_loss is None:
         raise ValueError(f"no eval targets in fixed batches for {checkpoint_path}")
     total_targets = sum(batch.token_count for batch in fixed_batches)
     total_bytes = sum(batch.byte_count for batch in fixed_batches)
-    bits_per_byte = ce_loss / math.log(2) / total_bytes
+    if total_bytes <= 0:
+        raise ValueError(f"no eval bytes in fixed batches for {checkpoint_path}")
+    bits_per_byte = ce_loss * total_targets / math.log(2) / total_bytes
     return CheckpointEvalResult(
         path=str(checkpoint_path),
         checkpoint_step=loaded.step,

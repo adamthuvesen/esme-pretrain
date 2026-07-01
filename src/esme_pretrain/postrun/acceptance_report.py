@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.launch.pretrain import EXPECTED_ARTIFACTS
 from esme_pretrain.postrun.eval_checkpoints import file_sha256, select_checkpoint
+from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS
 
 
 @dataclass(frozen=True)

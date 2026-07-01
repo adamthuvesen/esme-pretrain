@@ -38,23 +38,27 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    model = PROBE_CONFIGS[args.model]
-    if args.context is not None:
-        model = replace(model, context_length=args.context)
-    config = ProbeConfig(
-        model=model,
-        micro_batch_size=args.micro_batch,
-        grad_accum_steps=args.grad_accum,
-        warmup_steps=args.warmup,
-        measured_steps=args.measured,
-        context_length=args.context,
-        dtype=args.dtype,
-        device=args.device,
-        use_compile=args.compile,
-        use_fused_optimizer=not args.no_fused,
-        device_peak_tflops=args.peak_tflops,
-    )
-    result = run_throughput_probe(config)
+    try:
+        model = PROBE_CONFIGS[args.model]
+        if args.context is not None:
+            model = replace(model, context_length=args.context)
+        config = ProbeConfig(
+            model=model,
+            micro_batch_size=args.micro_batch,
+            grad_accum_steps=args.grad_accum,
+            warmup_steps=args.warmup,
+            measured_steps=args.measured,
+            context_length=args.context,
+            dtype=args.dtype,
+            device=args.device,
+            use_compile=args.compile,
+            use_fused_optimizer=not args.no_fused,
+            device_peak_tflops=args.peak_tflops,
+        )
+        result = run_throughput_probe(config)
+    except (ValueError, RuntimeError) as error:
+        print(f"throughput-probe failed: {error}", file=sys.stderr)
+        return 2
     payload = result.to_dict()
     if args.json:
         print(json.dumps(payload, indent=2))

@@ -14,6 +14,7 @@ instead of silently re-reading already-seen tokens from the head. Counting in to
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,16 @@ from esme_pretrain.torch import torch
 # v2 adds data_offset_tokens + rng_state for stream-faithful resume. The repo is
 # local-only with no persisted checkpoints to keep compatible, so this is a clean bump.
 PRETRAIN_CHECKPOINT_FORMAT = 2
+PRETRAIN_CHECKPOINT_REQUIRED_KEYS = {
+    "data_offset_tokens",
+    "format_version",
+    "config",
+    "model_state",
+    "optimizer_state",
+    "rng_state",
+    "step",
+    "metrics",
+}
 
 
 def _unwrap(model: torch.nn.Module) -> torch.nn.Module:
@@ -127,9 +138,26 @@ def load_pretrain_checkpoint(
         raise ValueError(f"checkpoint does not exist: {path}")
     # weights_only=False: the payload carries RNG state (Python/NumPy tuples), which
     # are not plain tensors. This loads only our own checkpoints (local, trusted).
-    payload = torch.load(path, map_location=map_location, weights_only=False)
-    if payload.get("format_version") != PRETRAIN_CHECKPOINT_FORMAT:
+    try:
+        payload = torch.load(path, map_location=map_location, weights_only=False)
+    except Exception as error:  # noqa: BLE001 - normalize torch/pickle load failures.
+        raise ValueError(f"checkpoint could not be loaded: {path}") from error
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"checkpoint payload must be a mapping: {path}")
+    if "format_version" not in payload:
+        raise ValueError(f"checkpoint payload is missing keys ['format_version']: {path}")
+    if payload["format_version"] != PRETRAIN_CHECKPOINT_FORMAT:
         raise ValueError("unsupported pretrain checkpoint format")
+    missing = PRETRAIN_CHECKPOINT_REQUIRED_KEYS - set(payload)
+    if missing:
+        raise ValueError(f"checkpoint payload is missing keys {sorted(missing)}: {path}")
+    extra = set(payload) - PRETRAIN_CHECKPOINT_REQUIRED_KEYS
+    if extra:
+        raise ValueError(f"checkpoint payload has unexpected keys {sorted(extra)}: {path}")
+    if not isinstance(payload["config"], dict):
+        raise ValueError(f"checkpoint config must be a mapping: {path}")
+    if not isinstance(payload["metrics"], dict):
+        raise ValueError(f"checkpoint metrics must be a mapping: {path}")
     config = BackboneConfig.from_dict(payload["config"])
     model = DenseBackbone(config)
     model.load_state_dict(payload["model_state"])
@@ -140,6 +168,6 @@ def load_pretrain_checkpoint(
         optimizer_state=payload["optimizer_state"],
         step=int(payload["step"]),
         metrics=dict(payload["metrics"]),
-        data_offset_tokens=int(payload.get("data_offset_tokens", 0)),
-        rng_state=dict(payload.get("rng_state") or {}),
+        data_offset_tokens=int(payload["data_offset_tokens"]),
+        rng_state=dict(payload["rng_state"]),
     )

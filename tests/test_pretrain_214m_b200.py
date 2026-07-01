@@ -1,46 +1,20 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from esme_pretrain.launch import modal_tokenizer
-from esme_pretrain.launch.pretrain import (
-    EXPECTED_ARTIFACTS,
-    LAUNCH_APPROVAL_FLAG,
-    build_pretrain_dry_run,
-    load_pretrain_config,
-)
+from esme_pretrain.launch import gpu_smoke, modal_pretrain_body, modal_tokenizer
+from esme_pretrain.launch.pretrain import LAUNCH_APPROVAL_FLAG, build_pretrain_dry_run
+from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS, load_pretrain_config
 
 CONFIG_214M_B200 = Path("configs/pretrain_214m_b200.json")
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _modal_pretrain_module():
-    spec = importlib.util.spec_from_file_location(
-        "modal_pretrain_under_test",
-        REPO_ROOT / "scripts" / "modal_pretrain.py",
-    )
-    if spec is None or spec.loader is None:
-        raise AssertionError("could not load modal_pretrain.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _gpu_smoke_module():
-    spec = importlib.util.spec_from_file_location(
-        "pretrain_gpu_smoke_under_test",
-        REPO_ROOT / "scripts" / "pretrain_gpu_smoke.py",
-    )
-    if spec is None or spec.loader is None:
-        raise AssertionError("could not load pretrain_gpu_smoke.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return gpu_smoke
 
 
 def test_pretrain_214m_b200_config_validates_conventional_keystone_contract() -> None:
@@ -193,7 +167,7 @@ def _fake_tokenizers_namespace(captured: dict[str, object]):
     """Minimal `tokenizers` stand-in with digit-aware pre-tokenization.
 
     ``Digits``/``ByteLevel``/``Sequence`` implement enough of ``pre_tokenize_str``
-    to prove the digit-split branch in ``_train_tokenizer`` actually splits across
+    to prove ``_train_tokenizer`` actually splits across
     digit boundaries, without pulling in the Modal-image ``tokenizers`` dependency.
     """
     import re
@@ -315,18 +289,6 @@ def test_split_digits_pretokenizer_splits_multi_digit_numbers(tmp_path: Path) ->
     assert pieces == ["1", "2", "3", "4"]  # no merges across digit boundaries
 
 
-def test_without_split_digits_multi_digit_numbers_are_not_split(tmp_path: Path) -> None:
-    config = load_pretrain_config(CONFIG_214M_B200)
-    config.payload["tokenizer"]["split_digits"] = False
-
-    captured: dict[str, object] = {}
-    _train_with_fake_tokenizers(config, tmp_path, captured)
-
-    pre_tokenizer = captured["pre_tokenizer"]
-    pieces = [text for text, _ in pre_tokenizer.pre_tokenize_str("1234")]
-    assert pieces == ["1234"]  # plain byte-level keeps the digit run intact
-
-
 def test_invalid_trained_tokenizer_is_not_persisted(tmp_path: Path, monkeypatch) -> None:
     config = load_pretrain_config(CONFIG_214M_B200)
     config.payload["tokenizer"]["vocab_size"] = 32769
@@ -361,10 +323,21 @@ def test_existing_tokenizer_is_loaded_instead_of_retrained(tmp_path: Path, monke
     class FakeTokenizer:
         loaded_path: str | None = None
 
+        def __init__(self) -> None:
+            self._texts: list[str] = []
+
         @classmethod
         def from_file(cls, path: str):
             cls.loaded_path = path
             return cls()
+
+        def encode(self, text: str):
+            index = len(self._texts)
+            self._texts.append(text)
+            return SimpleNamespace(ids=[index])
+
+        def decode(self, ids: list[int]) -> str:
+            return self._texts[ids[0]] if ids else ""
 
         def get_vocab_size(self) -> int:
             return config.payload["tokenizer"]["vocab_size"]
@@ -382,6 +355,38 @@ def test_existing_tokenizer_is_loaded_instead_of_retrained(tmp_path: Path, monke
     assert report["source"] == "loaded_existing_tokenizer"
     persisted = json.loads((tmp_path / "tokenizer-report.json").read_text(encoding="utf-8"))
     assert persisted["source"] == "loaded_existing_tokenizer"
+
+
+def test_existing_tokenizer_round_trip_is_revalidated(tmp_path: Path, monkeypatch) -> None:
+    config = load_pretrain_config(CONFIG_214M_B200)
+    (tmp_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "tokenizer-report.json").write_text(
+        json.dumps({"round_trips": [{"round_trip": True}]}), encoding="utf-8"
+    )
+
+    class FakeTokenizer:
+        @classmethod
+        def from_file(cls, path: str):
+            return cls()
+
+        def encode(self, text: str):
+            return SimpleNamespace(ids=[1])
+
+        def decode(self, ids: list[int]) -> str:
+            return "drifted"
+
+        def get_vocab_size(self) -> int:
+            return config.payload["tokenizer"]["vocab_size"]
+
+    def fake_import(name: str):
+        if name == "tokenizers":
+            return SimpleNamespace(Tokenizer=FakeTokenizer)
+        raise AssertionError(f"unexpected tokenizer training import: {name}")
+
+    monkeypatch.setattr(modal_tokenizer.importlib, "import_module", fake_import)
+
+    with pytest.raises(RuntimeError, match="tokenizer round-trip check failed"):
+        modal_tokenizer._load_or_train_tokenizer(config, tmp_path)
 
 
 def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
@@ -402,23 +407,20 @@ def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
 
 
 def test_wandb_resume_run_id_prefers_persisted_id(tmp_path: Path) -> None:
-    module = _modal_pretrain_module()
     (tmp_path / "wandb-run-id.txt").write_text("x99drn15\n", encoding="utf-8")
 
-    assert module._wandb_resume_run_id(tmp_path) == "x99drn15"
+    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"
 
 
 def test_wandb_resume_run_id_falls_back_to_existing_wandb_run_dir(tmp_path: Path) -> None:
-    module = _modal_pretrain_module()
     run_dir = tmp_path / "wandb" / "run-20260625_220548-x99drn15"
     run_dir.mkdir(parents=True)
 
-    assert module._wandb_resume_run_id(tmp_path) == "x99drn15"
+    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"
 
 
 def test_modal_pretrain_refuses_without_approval(capsys) -> None:
-    module = _modal_pretrain_module()
-    exit_code = module.launch(["--config", str(CONFIG_214M_B200), "--json"])
+    exit_code = modal_pretrain_body.launch(["--config", str(CONFIG_214M_B200), "--json"])
 
     assert exit_code == 2
     captured = capsys.readouterr()

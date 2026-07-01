@@ -1,6 +1,7 @@
 # 214M B200 Pretrain Run Card
 
-`214M B200` is the accepted conventional dense 10B pretrain run shape. Its exported model artifact is `Esme-214M-Base`, the base model used by posttraining and serving.
+`214M B200` is the current dense 10B pretrain run shape. Its exported model
+artifact is `Esme-214M-Base`, the base model used by posttraining and serving.
 
 ## Run
 
@@ -15,7 +16,7 @@
 - **Hard read budget:** `10,329,514,240` tokens.
 
 No new FineWeb-Edu download, Modal job, GPU, W&B run, or paid compute is approved
-by this file or the checked-in config alone. The accepted 10B run is complete;
+by this file or the checked-in config alone. The 10B base training run is complete;
 future reruns still require explicit approval.
 
 ## Model
@@ -33,9 +34,8 @@ future reruns still require explicit approval.
 
 Selected dry-run profile: `B200`.
 
-The GPU gate ran bounded paid smoke probes for H100!, H200, and B200 with a
-local cumulative spend ledger capped at `$10`. Actual measured smoke spend was
-`$0.8583`.
+The hardware measurement pass compared H100!, H200, and B200 under the same
+training shape. Actual measured setup spend was `$0.8583`.
 
 Measured projection in `configs/pretrain_214m_b200.json`:
 
@@ -58,7 +58,7 @@ uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json
 ```
 
 Future full runs require explicit chat approval of the exact command and a
-runtime spend stop. The accepted run reached `26015` steps / `10.23B` target
+runtime spend stop. The current base reached `26015` steps / `10.23B` target
 tokens before the finite `sample-10BT` stream exhausted; preserved artifacts live
 under the run path.
 
@@ -73,7 +73,7 @@ disconnects. The launcher uses `run_pretrain_launch.spawn(...).get()` instead of
 
 ## Required Artifacts
 
-The accepted run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` is expected to contain:
+The run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` is expected to contain:
 
 - `config.json`
 - `tokenizer.json`
@@ -99,4 +99,4 @@ The accepted run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` is expe
 - Throughput is low enough that the run will miss the approved `$100` cap.
 - Checkpoint save/resume fails or resume would re-read the corpus head.
 - Required artifacts cannot be written to the Modal Volume and local output mirror.
-- Any implementation change would alter dataset, accepted 10B token budget, model config, tokenizer choice, selected GPU profile, or cost cap.
+- Any implementation change would alter dataset, current 10B token budget, model config, tokenizer choice, selected GPU profile, or cost cap.

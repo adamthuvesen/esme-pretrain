@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from esme_pretrain.data.corpus_stream import document_text_stream
-from esme_pretrain.launch.pretrain import PretrainLaunchConfig
+from esme_pretrain.pretrain_run import PretrainLaunchConfig
 
 
 def _load_or_train_tokenizer(
@@ -29,13 +29,19 @@ def _load_or_train_tokenizer(
     report_path = output_dir / "tokenizer-report.json"
     if tokenizer_path.exists():
         tokenizer = tokenizers.Tokenizer.from_file(str(tokenizer_path))
-        report = json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+        report = _read_tokenizer_report(report_path)
         report = {
             **report,
             "source": "loaded_existing_tokenizer",
             "vocab_size": tokenizer.get_vocab_size(),
             "target_vocab_size": config.payload["tokenizer"]["vocab_size"],
         }
+        if config.payload["tokenizer"]["require_round_trip_checks"]:
+            report["round_trips"] = _round_trip_checks(tokenizer)
+        if config.payload["tokenizer"]["require_coverage_report"]:
+            report["coverage"] = report.get(
+                "coverage", "byte-level BPE; every UTF-8 byte has a fallback path"
+            )
         _validate_tokenizer_artifact(
             config, tokenizer, report, require_target_vocab=require_target_vocab
         )
@@ -64,15 +70,14 @@ def _train_tokenizer(
     decoders = importlib.import_module("tokenizers.decoders")
 
     tokenizer = tokenizers.Tokenizer(models.BPE(unk_token="<unk>"))
-    byte_level = pre_tokenizers.ByteLevel(add_prefix_space=False)
-    if config.payload["tokenizer"].get("split_digits", False):
-        # Split digits into single tokens before byte-level pre-tokenization so the
-        # BPE never merges across digit boundaries (numbers become digit sequences).
-        tokenizer.pre_tokenizer = pre_tokenizers.Sequence(
-            [pre_tokenizers.Digits(individual_digits=True), byte_level]
-        )
-    else:
-        tokenizer.pre_tokenizer = byte_level
+    # Split digits into single tokens before byte-level pre-tokenization so the
+    # BPE never merges across digit boundaries (numbers become digit sequences).
+    tokenizer.pre_tokenizer = pre_tokenizers.Sequence(
+        [
+            pre_tokenizers.Digits(individual_digits=True),
+            pre_tokenizers.ByteLevel(add_prefix_space=False),
+        ]
+    )
     tokenizer.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
         vocab_size=config.payload["tokenizer"]["vocab_size"],
@@ -83,22 +88,13 @@ def _train_tokenizer(
     tokenizer_path = output_dir / "tokenizer.json"
     report_path = output_dir / "tokenizer-report.json"
 
-    examples = [
-        "The quick brown fox jumps over the lazy dog.",
-        "LLM pretraining needs boring, durable evidence.",
-    ]
-    round_trips = []
-    for text in examples:
-        ids = tokenizer.encode(text).ids
-        decoded = tokenizer.decode(ids)
-        round_trips.append({"text": text, "tokens": len(ids), "round_trip": decoded == text})
     report = {
         "kind": config.payload["tokenizer"]["kind"],
         "trainer": config.payload["tokenizer"]["trainer"],
         "vocab_size": tokenizer.get_vocab_size(),
         "target_vocab_size": config.payload["tokenizer"]["vocab_size"],
         "source": "trained",
-        "round_trips": round_trips,
+        "round_trips": _round_trip_checks(tokenizer),
         "coverage": "byte-level BPE; every UTF-8 byte has a fallback path",
     }
     if (
@@ -129,9 +125,43 @@ def _validate_tokenizer_artifact(
         and tokenizer.get_vocab_size() != config.payload["tokenizer"]["vocab_size"]
     ):
         raise RuntimeError("tokenizer did not reach the configured vocab size")
-    round_trips = report.get("round_trips", [])
-    if round_trips and not all(item.get("round_trip") for item in round_trips):
+    if config.payload["tokenizer"]["require_round_trip_checks"]:
+        round_trips = report.get("round_trips")
+        if not isinstance(round_trips, list) or not round_trips:
+            raise RuntimeError("tokenizer round-trip checks are missing")
+        if not all(isinstance(item, dict) and item.get("round_trip") for item in round_trips):
+            raise RuntimeError("tokenizer round-trip check failed")
+    if config.payload["tokenizer"]["require_coverage_report"]:
+        coverage = report.get("coverage")
+        if not isinstance(coverage, str) or not coverage.strip():
+            raise RuntimeError("tokenizer coverage report is missing")
+
+
+def _read_tokenizer_report(report_path: Path) -> dict[str, Any]:
+    if not report_path.exists():
+        return {}
+    try:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"tokenizer-report.json is not valid JSON: {error.msg}") from error
+    if not isinstance(report, dict):
+        raise RuntimeError("tokenizer-report.json must contain a JSON object")
+    return report
+
+
+def _round_trip_checks(tokenizer: Any) -> list[dict[str, Any]]:
+    examples = [
+        "The quick brown fox jumps over the lazy dog.",
+        "LLM pretraining needs boring, durable evidence.",
+    ]
+    round_trips = []
+    for text in examples:
+        ids = tokenizer.encode(text).ids
+        decoded = tokenizer.decode(ids)
+        round_trips.append({"text": text, "tokens": len(ids), "round_trip": decoded == text})
+    if not all(item["round_trip"] for item in round_trips):
         raise RuntimeError("tokenizer round-trip check failed")
+    return round_trips
 
 
 def _bounded_texts_for_tokenizer(config: PretrainLaunchConfig) -> Iterator[str]:

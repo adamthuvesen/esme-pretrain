@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import math
 import sys
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import esme_pretrain.training.pretrain as pretrain_module
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
 from esme_pretrain.torch import torch
@@ -161,6 +163,79 @@ def test_resume_continues_from_saved_step(tmp_path: Path) -> None:
     assert result.start_step == 4
     assert result.steps_completed == 3
     assert load_pretrain_checkpoint(tmp_path / "checkpoint.pt").step == 7
+
+
+def test_resume_rejects_shape_compatible_config_drift(tmp_path: Path) -> None:
+    first = _config(tmp_path, max_steps=1, warmup_steps=0)
+    logger = RunLogger(tmp_path, WandbSettings(enabled=False))
+    run_pretrain(first, _loader(1), logger=logger)
+    logger.finish()
+
+    drifted = _config(
+        tmp_path,
+        max_steps=2,
+        resume_from=tmp_path / "checkpoint.pt",
+        model=replace(_model(), z_loss_weight=0.0),
+    )
+    with pytest.raises(ValueError, match="resume checkpoint config does not match"):
+        run_pretrain(drifted, _loader(1))
+
+
+def test_non_finite_loss_aborts_before_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_loss(logits, _targets, **_kwargs):
+        loss = logits.sum() * float("nan")
+        return loss, {"ce_loss": float("nan"), "total_loss": float("nan")}
+
+    monkeypatch.setattr(pretrain_module, "language_model_loss", fake_loss)
+    config = _config(tmp_path, max_steps=1, grad_accum_steps=1, warmup_steps=0)
+    batch = Batch(
+        input_ids=torch.randint(0, 128, (4, 16), dtype=torch.long),
+        targets=torch.randint(0, 128, (4, 16), dtype=torch.long),
+    )
+    logger = RunLogger(tmp_path, WandbSettings(enabled=False))
+    try:
+        with pytest.raises(RuntimeError, match="non-finite train loss"):
+            run_pretrain(config, [batch], logger=logger)
+    finally:
+        logger.finish()
+    assert not (tmp_path / "checkpoint.pt").exists()
+
+
+def test_periodic_checkpoint_cadence_uses_completed_steps(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        max_steps=4,
+        checkpoint_interval=2,
+        log_interval=1,
+        eval_interval=0,
+        sample_interval=0,
+    )
+    logger = RunLogger(tmp_path, WandbSettings(enabled=False))
+    run_pretrain(config, _loader(1), logger=logger)
+    logger.finish()
+
+    assert load_pretrain_checkpoint(tmp_path / "checkpoint-step2.pt").step == 2
+    assert load_pretrain_checkpoint(tmp_path / "checkpoint-step4.pt").step == 4
+    assert not (tmp_path / "checkpoint-step3.pt").exists()
+
+
+def test_checkpoint_load_rejects_missing_model_state(tmp_path: Path) -> None:
+    checkpoint = tmp_path / "checkpoint.pt"
+    torch.save(
+        {
+            "format_version": 2,
+            "config": _model().to_dict(),
+            "optimizer_state": None,
+            "step": 1,
+            "metrics": {},
+        },
+        checkpoint,
+    )
+
+    with pytest.raises(ValueError, match="missing keys.*model_state"):
+        load_pretrain_checkpoint(checkpoint)
 
 
 class _RecordingLoader:

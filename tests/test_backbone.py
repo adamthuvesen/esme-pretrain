@@ -7,9 +7,7 @@ from esme_pretrain.modeling.backbone import (
     BackboneConfig,
     DenseBackbone,
     baseline_config,
-    build_attention,
     language_model_loss,
-    soft_cap_logits,
 )
 from esme_pretrain.torch import torch
 
@@ -68,22 +66,9 @@ def test_sequence_longer_than_context_raises() -> None:
         model(torch.randint(0, 128, (1, 9)))
 
 
-def test_soft_cap_bounds_logits() -> None:
-    # soft_cap_logits is the bounding primitive; forward() now returns RAW logits
-    # (so the z-loss can regularize them), and the cap is applied in the loss/generate.
-    capped = soft_cap_logits(torch.tensor([[100.0, -100.0, 0.0]]), 5.0)
-    assert float(capped.abs().max()) <= 5.0
-    # cap <= 0 disables capping (identity passthrough).
-    raw = torch.tensor([[100.0, -100.0]])
-    assert torch.equal(soft_cap_logits(raw, 0.0), raw)
-
-
-def test_forward_returns_raw_uncapped_logits() -> None:
-    # Regression guard for the z-loss fix: forward() must NOT soft-cap, so logsumexp
-    # over its output is unbounded and the z-loss stays a real regularizer.
-    config = _tiny(logit_soft_cap=5.0)
+def test_forward_returns_raw_logits() -> None:
+    config = _tiny()
     model = DenseBackbone(config)
-    # Push the LM head to large magnitudes so a cap, if present, would clamp to 5.
     with torch.no_grad():
         model.lm_head.weight.mul_(50.0)
     logits = model(torch.randint(0, config.vocab_size, (2, 16)))
@@ -174,76 +159,12 @@ def test_z_loss_increases_total_loss() -> None:
     assert plain_parts["ce_loss"] == pytest.approx(z_parts["ce_loss"], rel=1e-6)
 
 
-def test_cross_entropy_uses_soft_capped_logits() -> None:
-    # CE must match F.cross_entropy on the *capped* logits (the distribution the
-    # model is trained on), proving the loss applies the cap to the CE path itself
-    # now that forward() returns raw logits.
-    torch.manual_seed(0)
-    raw = torch.randn(4, 6, 50) * 8.0  # large enough that the cap actually bites
-    targets = torch.randint(0, 50, (4, 6))
-    cap = 5.0
-    ours, _ = language_model_loss(raw, targets, z_loss_weight=0.0, logit_soft_cap=cap)
-    capped = soft_cap_logits(raw.reshape(-1, 50).float(), cap)
-    reference = torch.nn.functional.cross_entropy(capped, targets.reshape(-1))
-    assert torch.allclose(ours, reference, atol=1e-5)
-
-
-def test_z_loss_regularizes_raw_logits_not_capped() -> None:
-    # The fix: z-loss must have a *meaningful* gradient to the RAW pre-cap logits.
-    # Soft-capping makes logsumexp(capped) bounded (<= log(V) + cap), so a z-loss on
-    # capped logits collapses; on raw logits it stays a real penalty. We assert the
-    # raw-logit z-loss gradient is orders of magnitude larger than the capped one.
-    torch.manual_seed(0)
-    vocab = 256
-    # Logits that genuinely exceed the cap (std 30 vs cap 5), so tanh saturates and
-    # the capped-path z-loss gradient collapses — the regime the review measured at
-    # scale (raw z-grad ~6e-2 vs capped ~9e-4).
-    cap = 5.0
-    z_weight = 1e-2
-    base = torch.randn(2, 16, vocab) * 30.0
-    targets = torch.randint(0, vocab, (2, 16))
-
-    # Real path: z-loss computed on raw logits (what the fixed loss does).
-    raw = base.clone().requires_grad_(True)
-    _, _ = language_model_loss(raw, targets, z_loss_weight=z_weight, logit_soft_cap=cap)
-    z_raw = z_weight * (torch.logsumexp(raw.reshape(-1, vocab).float(), dim=-1) ** 2).mean()
-    (z_grad_raw,) = torch.autograd.grad(z_raw, raw)
-
-    # Broken path: z-loss computed on the soft-capped logits (the bug we fixed).
-    capped_in = base.clone().requires_grad_(True)
-    capped = soft_cap_logits(capped_in.reshape(-1, vocab).float(), cap)
-    z_capped = z_weight * (torch.logsumexp(capped, dim=-1) ** 2).mean()
-    (z_grad_capped,) = torch.autograd.grad(z_capped, capped_in)
-
-    raw_norm = float(z_grad_raw.norm())
-    capped_norm = float(z_grad_capped.norm())
-    assert raw_norm > 0.0
-    # The capped-path gradient is throttled by the tanh saturation; raw is far larger.
-    assert raw_norm > 50.0 * capped_norm
-
-
 def test_generate_extends_sequence() -> None:
     model = DenseBackbone(_tiny())
     prompt = torch.randint(0, 128, (1, 4))
     out = model.generate(prompt, max_new_tokens=6, temperature=0.0)
     assert out.shape == (1, 10)
     assert torch.equal(out[:, :4], prompt)
-
-
-def test_mla_attention_placeholder_is_reserved() -> None:
-    config = _tiny(attention_kind="mla")
-    with pytest.raises(NotImplementedError, match="future ablation"):
-        build_attention(config)
-
-
-def test_mtp_head_placeholder_is_reserved() -> None:
-    with pytest.raises(NotImplementedError, match="future ablation"):
-        DenseBackbone(_tiny(mtp_predict_tokens=2))
-
-
-def test_baseline_has_no_mtp_head() -> None:
-    model = DenseBackbone(_tiny())
-    assert model.mtp_head is None
 
 
 def test_unknown_attention_kind_rejected() -> None:

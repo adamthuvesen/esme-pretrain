@@ -41,7 +41,6 @@ def test_forward_shape_and_causality_path() -> None:
         attention_kind="mha",
         qk_norm=False,
         z_loss_weight=0.0,
-        logit_soft_cap=0.0,
     )
     model = DenseBackbone(config)
     input_ids = torch.randint(0, config.vocab_size, (2, 8))
@@ -71,7 +70,6 @@ def test_tiny_cpu_probe_runs_and_reports_tokens_per_second() -> None:
             attention_kind="mha",
             qk_norm=False,
             z_loss_weight=0.0,
-            logit_soft_cap=0.0,
         ),
         micro_batch_size=2,
         grad_accum_steps=2,

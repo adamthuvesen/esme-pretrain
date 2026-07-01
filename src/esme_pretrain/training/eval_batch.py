@@ -17,7 +17,6 @@ def mean_ce_loss(
     *,
     device: torch.device | str,
     autocast: Any | None = None,
-    logit_soft_cap: float = 0.0,
 ) -> float | None:
     """Mean CE over ``(input_ids, targets)`` pairs. Returns ``None`` when empty."""
     autocast_ctx = nullcontext() if autocast is None else autocast
@@ -31,12 +30,7 @@ def mean_ce_loss(
         targets = targets.to(device)
         with autocast_ctx:
             logits = model(input_ids)
-            loss, _ = language_model_loss(
-                logits,
-                targets,
-                z_loss_weight=0.0,
-                logit_soft_cap=logit_soft_cap,
-            )
+            loss, _ = language_model_loss(logits, targets, z_loss_weight=0.0)
         count = int(targets.numel())
         weighted_total += float(loss.detach().cpu()) * count
         total_targets += count

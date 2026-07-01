@@ -16,7 +16,7 @@ make the training run simpler, stabler, and easier to serve.
 - Digit-split byte-level BPE tokenizer.
 
 The checked-in [`pretrain_214m_b200`](../configs/pretrain_214m_b200.json)
-configuration records the accepted 10B-token run shape.
+configuration records the current 10B-token run shape.
 
 ## Design Choices
 
@@ -37,7 +37,7 @@ configuration records the accepted 10B-token run shape.
 ## Geometry
 
 At this parameter budget, a deeper-and-narrower dense model is a good default.
-The accepted shape uses 30 layers at `d_model=768`, which keeps the deep/thin
+The current shape uses 30 layers at `d_model=768`, which keeps the deep/thin
 recipe while leaving enough feed-forward capacity for posttraining and serving.
 
 Qwen3 is the closest current reference for the modern dense transformer stack.
@@ -54,6 +54,6 @@ The code, tokenizer, weights, and training artifacts are all local to this repo.
 | Logit soft-capping                      | QK-norm plus z-loss cover the stability goal without adding another logit clamp.  |
 | MLA                                     | Useful for large-scale KV-cache efficiency; GQA is enough at 214M.                |
 | MoE                                     | A scale-out capacity technique; this model is intentionally dense.                |
-| MTP                                     | A training/decoding-speed feature left out of the accepted base.                  |
+| MTP                                     | A training/decoding-speed feature left out of the current base.                   |
 | Sliding-window / local-global attention | Long-context efficiency is unnecessary at context length `1024`.                  |
-| Muon / μP / sandwich-norm               | Avoided to keep the accepted base low-risk and easy to reproduce.                 |
+| Muon / μP / sandwich-norm               | Avoided to keep the current base low-risk and easy to reproduce.                  |

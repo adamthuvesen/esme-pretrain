@@ -15,18 +15,21 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 # Modal on-demand A100-40GB list price, 2026-06 (modal.com/pricing): $0.000583/s.
 A100_40GB_USD_PER_SEC = 0.000583
 A100_80GB_USD_PER_SEC = 0.000694
 
 
-def _projection_for(result: dict, usd_per_sec: float, realization: float) -> dict:
+def _projection_for(
+    result: dict[str, Any], usd_per_sec: float, realization: float
+) -> dict[str, Any]:
     tps_ceiling = result["tokens_per_second"]
     tps_real = tps_ceiling * realization
     total_params = result["parameter_total"]
 
-    def pretrain(tokens_per_param: int) -> dict:
+    def pretrain(tokens_per_param: int) -> dict[str, Any]:
         tokens = tokens_per_param * total_params
         seconds = tokens / tps_real
         return {

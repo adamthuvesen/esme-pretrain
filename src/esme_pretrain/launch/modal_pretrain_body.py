@@ -29,13 +29,15 @@ from esme_pretrain.launch.modal_tokenizer import (
 )
 from esme_pretrain.launch.pretrain import (
     LAUNCH_APPROVAL_FLAG,
-    PretrainLaunchConfig,
     build_pretrain_dry_run,
-    load_pretrain_config,
-    validate_pretrain_payload,
 )
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
+from esme_pretrain.pretrain_run import (
+    PretrainLaunchConfig,
+    load_pretrain_config,
+    validate_pretrain_payload,
+)
 from esme_pretrain.training.data_stream import (
     StreamingBatchLoader,
     synthetic_token_stream,
@@ -163,7 +165,6 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
         layers=2,
         heads=4,
         feedforward_dim=128,
-        logit_soft_cap=0.0,
         z_loss_weight=0.0,
     )
     train_loader = StreamingBatchLoader(
