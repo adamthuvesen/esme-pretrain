@@ -167,7 +167,7 @@ def _fake_tokenizers_namespace(captured: dict[str, object]):
     """Minimal `tokenizers` stand-in with digit-aware pre-tokenization.
 
     ``Digits``/``ByteLevel``/``Sequence`` implement enough of ``pre_tokenize_str``
-    to prove ``_train_tokenizer`` actually splits across
+    to prove ``train_tokenizer`` actually splits across
     digit boundaries, without pulling in the Modal-image ``tokenizers`` dependency.
     """
     import re
@@ -272,7 +272,7 @@ def _train_with_fake_tokenizers(config, output_dir: Path, captured: dict[str, ob
     import unittest.mock as mock
 
     with mock.patch.object(modal_tokenizer.importlib, "import_module", fake_import):
-        return modal_tokenizer._train_tokenizer(
+        return modal_tokenizer.train_tokenizer(
             config, output_dir, iter(["1234 abc"]), require_target_vocab=False
         )
 
@@ -303,7 +303,7 @@ def test_invalid_trained_tokenizer_is_not_persisted(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(modal_tokenizer.importlib, "import_module", fake_import)
 
     try:
-        modal_tokenizer._train_tokenizer(config, tmp_path, iter(["1234 abc"]))
+        modal_tokenizer.train_tokenizer(config, tmp_path, iter(["1234 abc"]))
     except RuntimeError as error:
         assert "tokenizer did not reach the configured vocab size" in str(error)
     else:
@@ -348,7 +348,7 @@ def test_existing_tokenizer_is_loaded_instead_of_retrained(tmp_path: Path, monke
         raise AssertionError(f"unexpected tokenizer training import: {name}")
 
     monkeypatch.setattr(modal_tokenizer.importlib, "import_module", fake_import)
-    tokenizer, report = modal_tokenizer._load_or_train_tokenizer(config, tmp_path)
+    tokenizer, report = modal_tokenizer.load_or_train_tokenizer(config, tmp_path)
 
     assert isinstance(tokenizer, FakeTokenizer)
     assert FakeTokenizer.loaded_path == str(tmp_path / "tokenizer.json")
@@ -386,7 +386,7 @@ def test_existing_tokenizer_round_trip_is_revalidated(tmp_path: Path, monkeypatc
     monkeypatch.setattr(modal_tokenizer.importlib, "import_module", fake_import)
 
     with pytest.raises(RuntimeError, match="tokenizer round-trip check failed"):
-        modal_tokenizer._load_or_train_tokenizer(config, tmp_path)
+        modal_tokenizer.load_or_train_tokenizer(config, tmp_path)
 
 
 def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:

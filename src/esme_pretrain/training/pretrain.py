@@ -189,10 +189,6 @@ def _learning_rate_at_step(
     )
 
 
-def _peak_tflops(device_name: str) -> float | None:
-    return peak_tflops_for_device(device_name)
-
-
 def _param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str, Any]]:
     """Decay 2D matmul weights; skip decay on 1D params (norms) and the embedding.
 
@@ -386,7 +382,7 @@ def run_pretrain(
     logger = logger or RunLogger(config.output_dir)
     flops_per_token = config.model.flops_per_token(config.model.context_length)
     device_name = torch.cuda.get_device_name(device) if is_cuda else "cpu"
-    peak_tflops = _peak_tflops(device_name) if is_cuda else None
+    peak_tflops = peak_tflops_for_device(device_name) if is_cuda else None
 
     train_iter = iter(train_loader)
     tokens_per_second_samples: list[float] = []
