@@ -9,8 +9,8 @@ from esme_pretrain.launch.modal_pretrain_body import (
     APP_NAME,
     REPO_ROOT,
     VOLUME_MOUNT,
-    _run_pretrain_launch_body,
     launch,
+    run_pretrain_launch_body,
 )
 from esme_pretrain.launch.pretrain import LAUNCH_APPROVAL_FLAG
 
@@ -45,7 +45,7 @@ if modal is not None:  # pragma: no cover - exercised by Modal, not local unit t
         config_payload: dict[str, Any], commit: str, dirty: bool
     ) -> dict[str, Any]:
         try:
-            return _run_pretrain_launch_body(config_payload, commit=commit, dirty=dirty)
+            return run_pretrain_launch_body(config_payload, commit=commit, dirty=dirty)
         finally:
             # Persist intermediate checkpoints on controlled aborts. A hard Modal
             # kill can still interrupt anything, so the body also arms a softer alarm.

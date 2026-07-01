@@ -59,16 +59,8 @@ class PretrainLaunchConfig:
         return str(self.payload["artifacts"]["output_dir"])
 
     @property
-    def model(self) -> dict[str, Any]:
-        return dict(self.payload["model"])
-
-    @property
     def train_token_budget(self) -> int:
         return int(self.payload["budgets"]["train_token_budget"])
-
-    @property
-    def max_cost_usd(self) -> float:
-        return float(self.payload["runtime"]["max_cost_usd"])
 
     @property
     def selected_gpu(self) -> str:

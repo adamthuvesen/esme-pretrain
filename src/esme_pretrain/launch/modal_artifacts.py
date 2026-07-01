@@ -12,15 +12,15 @@ from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS, PretrainLaunchConfig
 from esme_pretrain.torch import torch
 
 
-def _required_artifacts_present(output_dir: Path) -> bool:
+def required_artifacts_present(output_dir: Path) -> bool:
     return all((output_dir / file_name).exists() for file_name in EXPECTED_ARTIFACTS)
 
 
-def _write_cost(output_dir: Path, cost: dict[str, Any]) -> None:
+def write_cost(output_dir: Path, cost: dict[str, Any]) -> None:
     (output_dir / "cost.json").write_text(json.dumps(cost, indent=2), encoding="utf-8")
 
 
-def _write_data_report(
+def write_data_report(
     config: PretrainLaunchConfig, output_dir: Path, tokenizer_report: dict[str, Any]
 ) -> None:
     report = {
@@ -33,7 +33,7 @@ def _write_data_report(
     (output_dir / "data-report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def _write_environment(output_dir: Path) -> None:
+def write_environment(output_dir: Path) -> None:
     lines = [
         f"python={sys.version.split()[0]}",
         f"torch={torch.__version__}",
@@ -49,7 +49,7 @@ def _write_environment(output_dir: Path) -> None:
     (output_dir / "environment.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _write_pretrain_report(
+def write_pretrain_report(
     config: PretrainLaunchConfig,
     output_dir: Path,
     result: dict[str, Any],
@@ -77,7 +77,7 @@ def _write_pretrain_report(
     return report
 
 
-def _write_rehearsal_manifest(
+def write_rehearsal_manifest(
     config: PretrainLaunchConfig,
     output_dir: Path,
     result: Any,
@@ -102,10 +102,10 @@ def _write_rehearsal_manifest(
         ),
         encoding="utf-8",
     )
-    _write_data_report(config, output_dir, {"mode": "local-dress-rehearsal"})
-    _write_environment(output_dir)
-    _write_cost(output_dir, {"paid_compute": False, "estimated_cost_usd": 0.0})
-    _write_pretrain_report(
+    write_data_report(config, output_dir, {"mode": "local-dress-rehearsal"})
+    write_environment(output_dir)
+    write_cost(output_dir, {"paid_compute": False, "estimated_cost_usd": 0.0})
+    write_pretrain_report(
         config,
         output_dir,
         {
@@ -114,12 +114,12 @@ def _write_rehearsal_manifest(
             "data_offset_tokens": data_offset_tokens,
         },
         {"paid_compute": False, "estimated_cost_usd": 0.0},
-        _local_git_commit(repo_root),
-        _local_git_dirty(repo_root),
+        local_git_commit(repo_root),
+        local_git_dirty(repo_root),
     )
 
 
-def _local_git_commit(repo_root: Path) -> str:
+def local_git_commit(repo_root: Path) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
         check=False,
@@ -129,7 +129,7 @@ def _local_git_commit(repo_root: Path) -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
-def _local_git_dirty(repo_root: Path) -> bool:
+def local_git_dirty(repo_root: Path) -> bool:
     result = subprocess.run(
         ["git", "-C", str(repo_root), "status", "--porcelain"],
         check=False,

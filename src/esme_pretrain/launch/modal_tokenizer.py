@@ -12,7 +12,7 @@ from esme_pretrain.data.corpus_stream import document_text_stream
 from esme_pretrain.pretrain_run import PretrainLaunchConfig
 
 
-def _load_or_train_tokenizer(
+def load_or_train_tokenizer(
     config: PretrainLaunchConfig,
     output_dir: Path,
     *,
@@ -48,7 +48,7 @@ def _load_or_train_tokenizer(
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         return tokenizer, report
 
-    return _train_tokenizer(
+    return train_tokenizer(
         config,
         output_dir,
         _bounded_texts_for_tokenizer(config),
@@ -56,7 +56,7 @@ def _load_or_train_tokenizer(
     )
 
 
-def _train_tokenizer(
+def train_tokenizer(
     config: PretrainLaunchConfig,
     output_dir: Path,
     texts: Iterator[str],
@@ -177,7 +177,7 @@ def _bounded_texts_for_tokenizer(config: PretrainLaunchConfig) -> Iterator[str]:
         yield text
 
 
-def _token_id(tokenizer: Any, token: str) -> int:
+def require_token_id(tokenizer: Any, token: str) -> int:
     token_id = tokenizer.token_to_id(token)
     if token_id is None:
         raise RuntimeError(f"tokenizer is missing required token {token!r}")

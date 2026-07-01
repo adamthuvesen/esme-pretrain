@@ -73,6 +73,9 @@ def _launch_command(config_path: Path, runtime: dict[str, Any]) -> str:
 
 
 def _launch_safety_blockers(config: PretrainLaunchConfig) -> list[str]:
+    # Over-cost and over-timeout configs never reach this point: validate_pretrain_payload
+    # rejects them at load. The only condition that validates but is unsafe to launch is a
+    # projected duration that would outlive the Modal function timeout.
     runtime = config.payload["runtime"]
     selected_profile = config.selected_gpu_profile
     blockers: list[str] = []
@@ -80,8 +83,4 @@ def _launch_safety_blockers(config: PretrainLaunchConfig) -> list[str]:
         blockers.append(
             "selected GPU projected duration exceeds the configured Modal function timeout"
         )
-    if int(runtime["timeout_hours"]) > 24:
-        blockers.append("runtime.timeout_hours exceeds Modal's 24h function maximum")
-    if config.estimated_cost_usd > float(runtime["max_cost_usd"]):
-        blockers.append("selected GPU projected cost exceeds runtime.max_cost_usd")
     return blockers

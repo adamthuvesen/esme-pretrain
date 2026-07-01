@@ -8,24 +8,25 @@ import shutil
 import signal
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from esme_pretrain.data.corpus_stream import document_text_stream
 from esme_pretrain.launch.modal_artifacts import (
-    _local_git_commit,
-    _local_git_dirty,
-    _required_artifacts_present,
-    _write_cost,
-    _write_data_report,
-    _write_environment,
-    _write_pretrain_report,
-    _write_rehearsal_manifest,
+    local_git_commit,
+    local_git_dirty,
+    required_artifacts_present,
+    write_cost,
+    write_data_report,
+    write_environment,
+    write_pretrain_report,
+    write_rehearsal_manifest,
 )
 from esme_pretrain.launch.modal_tokenizer import (
-    _load_or_train_tokenizer,
-    _token_id,
-    _train_tokenizer,
+    load_or_train_tokenizer,
+    require_token_id,
+    train_tokenizer,
 )
 from esme_pretrain.launch.pretrain import (
     LAUNCH_APPROVAL_FLAG,
@@ -131,7 +132,7 @@ def launch(argv: list[str] | None = None, *, run_pretrain_launch: Any | None = N
         return 2
 
     function_call = run_pretrain_launch.spawn(
-        config.payload, _local_git_commit(REPO_ROOT), _local_git_dirty(REPO_ROOT)
+        config.payload, local_git_commit(REPO_ROOT), local_git_dirty(REPO_ROOT)
     )
     if args.spawn:
         print(
@@ -150,7 +151,7 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
 
     This deliberately uses synthetic token ids and a tiny CPU model so it never touches
     FineWeb-Edu, Modal, W&B, or paid hardware. The real full run path is
-    ``_run_pretrain_launch_body``.
+    ``run_pretrain_launch_body``.
     """
     output_dir = _local_evidence_dir(config, "local-dress-rehearsal")
     if output_dir.exists():
@@ -202,13 +203,11 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
     result = run_pretrain(train_config, train_loader, eval_loader=eval_loader, logger=logger)
     logger.finish()
 
-    resumed_config = PretrainConfig(
-        **{
-            **train_config.__dict__,
-            "max_steps": 6,
-            "resume_from": output_dir / "checkpoint.pt",
-            "use_compile": False,
-        }
+    resumed_config = replace(
+        train_config,
+        max_steps=6,
+        resume_from=output_dir / "checkpoint.pt",
+        use_compile=False,
     )
     resume_logger = RunLogger(output_dir, WandbSettings(enabled=False))
     resume_result = run_pretrain(
@@ -230,7 +229,7 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
     resume_logger.finish()
 
     checkpoint = load_pretrain_checkpoint(output_dir / "checkpoint.pt")
-    _write_rehearsal_manifest(
+    write_rehearsal_manifest(
         config,
         output_dir,
         result,
@@ -249,7 +248,7 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
             "resume_steps": resume_result.steps_completed,
             "checkpoint_step": checkpoint.step,
             "data_offset_tokens": checkpoint.data_offset_tokens,
-            "required_artifacts_present": _required_artifacts_present(output_dir),
+            "required_artifacts_present": required_artifacts_present(output_dir),
         },
     }
 
@@ -269,10 +268,10 @@ def run_local_tokenizer_smoke(config: PretrainLaunchConfig) -> dict[str, Any]:
         ]
         * 32
     )
-    tokenizer, trained_report = _train_tokenizer(
+    tokenizer, trained_report = train_tokenizer(
         config, output_dir, texts, require_target_vocab=False
     )
-    loaded, loaded_report = _load_or_train_tokenizer(config, output_dir, require_target_vocab=False)
+    loaded, loaded_report = load_or_train_tokenizer(config, output_dir, require_target_vocab=False)
     return {
         "status": "local_tokenizer_smoke_complete",
         "paid_compute": False,
@@ -286,7 +285,7 @@ def run_local_tokenizer_smoke(config: PretrainLaunchConfig) -> dict[str, Any]:
     }
 
 
-def _run_pretrain_launch_body(
+def run_pretrain_launch_body(
     config_payload: dict[str, Any], *, commit: str, dirty: bool
 ) -> dict[str, Any]:
     config = validate_pretrain_payload(
@@ -298,10 +297,10 @@ def _run_pretrain_launch_body(
     _arm_spend_alarm(config)
     (output_dir / "config.json").write_text(json.dumps(config.payload, indent=2), encoding="utf-8")
 
-    tokenizer, tokenizer_report = _load_or_train_tokenizer(config, output_dir)
+    tokenizer, tokenizer_report = load_or_train_tokenizer(config, output_dir)
     train_documents = document_text_stream(config, split="train")
     validation_documents = document_text_stream(config, split="validation")
-    eos_id = _token_id(tokenizer, "<eos>")
+    eos_id = require_token_id(tokenizer, "<eos>")
 
     class Encoder:
         def encode(self, text: str) -> list[int]:
@@ -387,10 +386,10 @@ def _run_pretrain_launch_body(
         "estimated_cost_usd": elapsed * config.selected_gpu_profile["usd_per_hour"] / 3600.0,
         "runtime_spend_stop_usd": config.payload["runtime"]["runtime_spend_stop_usd"],
     }
-    _write_cost(output_dir, cost)
-    _write_environment(output_dir)
-    _write_data_report(config, output_dir, tokenizer_report)
-    report = _write_pretrain_report(config, output_dir, result.to_dict(), cost, commit, dirty)
+    write_cost(output_dir, cost)
+    write_environment(output_dir)
+    write_data_report(config, output_dir, tokenizer_report)
+    report = write_pretrain_report(config, output_dir, result.to_dict(), cost, commit, dirty)
     final_step = result.start_step + result.steps_completed
     status_payload = {
         "status": "pretrain_complete",
@@ -420,7 +419,7 @@ def _run_pretrain_launch_body(
         "result": result.to_dict(),
         "cost": cost,
         "pretrain_report": report,
-        "required_artifacts_present": _required_artifacts_present(output_dir),
+        "required_artifacts_present": required_artifacts_present(output_dir),
     }
 
 

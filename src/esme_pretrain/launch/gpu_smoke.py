@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -10,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
 from esme_pretrain.pretrain_run import PretrainLaunchConfig, load_pretrain_config
 
@@ -143,8 +145,8 @@ def launch(argv: list[str] | None = None) -> int:
         "max_steps": args.max_steps,
         "micro_batch_size": micro_batch,
         "grad_accum_steps": grad_accum,
-        "commit": _local_git_commit(),
-        "dirty": _local_git_dirty(),
+        "commit": local_git_commit(REPO_ROOT),
+        "dirty": local_git_dirty(REPO_ROOT),
     }
     wall_start = time.perf_counter()
     try:
@@ -484,7 +486,7 @@ def _project_cost(
 
 
 def _is_finite(value: Any) -> bool:
-    return isinstance(value, (int, float)) and value == value and abs(value) != float("inf")
+    return isinstance(value, (int, float)) and math.isfinite(value)
 
 
 def _nvidia_smi(query: str) -> str | None:
@@ -504,26 +506,6 @@ def _format_payload(payload: dict[str, Any], json_output: bool) -> str:
     if json_output:
         return json.dumps(payload, indent=2, sort_keys=True)
     return str(payload)
-
-
-def _local_git_commit() -> str:
-    result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip() if result.returncode == 0 else "unknown"
-
-
-def _local_git_dirty() -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "status", "--porcelain"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    return bool(result.stdout.strip()) if result.returncode == 0 else True
 
 
 if __name__ == "__main__":
