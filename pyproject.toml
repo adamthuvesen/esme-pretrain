@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "esme-pretrain"
+version = "0.0.0"
+description = "Small base-model pretraining lab with fixed eval and export."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Adam Thuvesen" }]
+dependencies = [
+  "numpy>=2.0",
+  "torch>=2.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "modal==1.5.0",
+  "pytest>=8.2",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+esme-pretrain = "esme_pretrain.cli:main"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+exclude = ["archive"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
