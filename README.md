@@ -5,11 +5,18 @@ its base-model pretraining path: data preparation, tokenizer training, model
 code, training launch checks, checkpoint evaluation, acceptance reporting, and
 export to `llm-infer`.
 
+## Why 214M?
+
+Esme-214M is intentionally small. That makes the full LLM lifecycle easier to
+build, keeps iteration fast and costs low, and makes failures easier to
+diagnose, while still going through real training, evaluation, export,
+post-training, and inference.
+
 ## Current State
 
-`Esme-214M-Base` is the accepted base checkpoint.
+`Esme-214M-Base` is the current base checkpoint.
 
-The accepted run is a 213,960,192-parameter dense decoder-only transformer
+`Esme-214M-Base` is a 213,960,192-parameter dense decoder-only transformer
 trained from scratch on FineWeb-Edu `sample-10BT`. The public training label is
 `10B` tokens; the exact configured budget is `10,229,514,240` tokens over
 `26,015` optimizer steps.
@@ -26,7 +33,7 @@ The base-model handoff is complete. The next model work is posttraining in
   `BackboneConfig`.
 - Training code with checkpoint/resume checks, fixed validation batches, local
   metrics, and optional W&B logging.
-- Approval-gated launch code for the accepted `214M B200` run shape.
+- Approval-gated launch code for the current `214M B200` run shape.
 - Post-run evaluation, acceptance reporting, bits-per-byte reporting, and
   `llm-infer` export.
 
@@ -50,7 +57,7 @@ uv run esme-pretrain status --json
 uv run esme-pretrain doctor
 ```
 
-Validate the accepted pretraining launch surface without spend:
+Validate the current pretraining launch surface without spend:
 
 ```bash
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
@@ -115,11 +122,11 @@ tokenizer contract, GPU choice, or cost cap are new run decisions.
 - Model and training design: [`docs/architecture.md`](docs/architecture.md)
 
 Detailed approval and measurement records live under `docs/` for operators who
-need to reproduce the accepted run.
+need to reproduce the base checkpoint.
 
 ## Related Repos
 
-- `esme-posttrain`: SFT and simple-task RL for the accepted base checkpoint.
+- `esme-posttrain`: SFT and simple-task RL for the current base checkpoint.
 - `llm-rlvr`: SFT and execution-verified RLVR experiments.
 - `grpo-decomp`: measurement work for RLVR gains.
 - `llm-infer`: loading, serving, and benchmarking exported checkpoints.
