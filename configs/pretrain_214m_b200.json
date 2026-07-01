@@ -1,0 +1,156 @@
+{
+  "run_id": "pretrain_214m_b200",
+  "run_card": "docs/run-cards/pretrain-214m-b200.md",
+  "requires_approval": true,
+  "dataset": {
+    "name": "fineweb-edu",
+    "source": "HuggingFaceFW/fineweb-edu",
+    "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+    "subset": "sample-10BT",
+    "split": "train",
+    "text_field": "text",
+    "id_field": "id",
+    "license": "odc-by",
+    "language": "en",
+    "streaming": true,
+    "filters": {
+      "min_int_score": 3
+    }
+  },
+  "split": {
+    "unit": "source_document",
+    "rule": "deterministic_hash",
+    "hash_field": "id",
+    "validation_modulo": 100,
+    "validation_remainder": 0,
+    "seed": 0
+  },
+  "budgets": {
+    "train_token_budget": 10229514240,
+    "validation_token_budget": 50000000,
+    "tokenizer_training_token_budget": 50000000,
+    "hard_read_token_budget": 10329514240
+  },
+  "tokenizer": {
+    "kind": "byte_level_bpe",
+    "trainer": "huggingface-tokenizers",
+    "vocab_size": 32768,
+    "special_tokens": ["<pad>", "<bos>", "<eos>", "<unk>"],
+    "train_on": "deterministic_training_split_prefix",
+    "output_file": "tokenizer.json",
+    "require_round_trip_checks": true,
+    "require_coverage_report": true,
+    "split_digits": true
+  },
+  "model": {
+    "attention_kind": "gqa",
+    "context_length": 1024,
+    "embedding_dim": 768,
+    "feedforward_dim": 2048,
+    "heads": 12,
+    "kv_heads": 4,
+    "layers": 30,
+    "logit_soft_cap": 0.0,
+    "mtp_predict_tokens": 0,
+    "name": "214M",
+    "qk_norm": true,
+    "rms_norm_eps": 1e-06,
+    "rope_theta": 10000.0,
+    "tie_embeddings": true,
+    "vocab_size": 32768,
+    "z_loss_weight": 0.0001
+  },
+  "optimizer": {
+    "name": "AdamW",
+    "learning_rate": 0.0006,
+    "min_lr_ratio": 0.1,
+    "warmup_steps": 450,
+    "weight_decay": 0.1,
+    "grad_clip": 1.0,
+    "lr_schedule": "wsd",
+    "decay_fraction": 0.2,
+    "training": {
+      "micro_batch_size": 24,
+      "grad_accum_steps": 16,
+      "dtype": "bfloat16",
+      "compile": true,
+      "fused_optimizer": true,
+      "seed": 0
+    }
+  },
+  "runtime": {
+    "provider": "modal",
+    "selected_gpu": "B200",
+    "precision": "bfloat16",
+    "gpu_profiles": {
+      "H100!": {
+        "modal_gpu": "H100!",
+        "usd_per_hour": 3.95,
+        "projected_tokens_per_second": 165070,
+        "expected_duration_hours": 17.21,
+        "projection_source": "Measured 214M GPU smoke at runs/pretrain-214m-b200/gpu-smoke-h100bang.json",
+        "measured": true
+      },
+      "H200": {
+        "modal_gpu": "H200",
+        "usd_per_hour": 4.55,
+        "projected_tokens_per_second": 191391,
+        "expected_duration_hours": 14.85,
+        "projection_source": "Measured 214M GPU smoke at runs/pretrain-214m-b200/gpu-smoke-h200.json",
+        "measured": true
+      },
+      "B200": {
+        "modal_gpu": "B200",
+        "usd_per_hour": 6.25,
+        "projected_tokens_per_second": 290838,
+        "expected_duration_hours": 9.77,
+        "projection_source": "Measured 214M GPU smoke at runs/pretrain-214m-b200/gpu-smoke-b200.json",
+        "measured": true
+      }
+    },
+    "max_cost_usd": 100,
+    "absolute_cost_cap_usd": 100,
+    "runtime_spend_stop_usd": 100,
+    "allow_retries": false,
+    "modal_volume": "esme-pretrain-214m-b200",
+    "timeout_hours": 24
+  },
+  "monitoring": {
+    "log_interval": 10,
+    "eval_interval": 500,
+    "eval_batches": 20,
+    "checkpoint_interval": 500,
+    "sample_interval": 500,
+    "sample_new_tokens": 80,
+    "wandb_project": "esme-pretrain"
+  },
+  "artifacts": {
+    "output_dir": "runs/pretrain-214m-b200/pretrain_214m_b200",
+    "required_files": [
+      "config.json",
+      "tokenizer.json",
+      "tokenizer-report.json",
+      "data-report.json",
+      "metrics.jsonl",
+      "throughput.csv",
+      "checkpoint.pt",
+      "samples.md",
+      "environment.txt",
+      "cost.json",
+      "run-summary.json",
+      "scaleup-pretrain-report.md"
+    ]
+  },
+  "abort_rules": [
+    "Future full pretrain reruns require explicit chat approval of the exact command and the $100 runtime spend stop.",
+    "The dry-run payload is not ready_for_pretrain_launch.",
+    "Runtime spend reaches $100 or projected spend would exceed the $100 absolute cap.",
+    "FineWeb-Edu source, revision, license, or deterministic split differs from this config.",
+    "Tokenizer training cannot write tokenizer.json, tokenizer-report.json, round-trip checks, and coverage report.",
+    "Loss becomes NaN/inf, fails to trend down in the early sanity window, or validation loss cannot be computed.",
+    "Throughput is low enough that the run will miss the approved $100 cap.",
+    "Checkpoint save/resume fails or resume would re-read the corpus head.",
+    "Required artifacts cannot be written to the Modal Volume and local output mirror.",
+    "Any implementation change would alter dataset, token budget, model config, tokenizer choice, selected GPU profile, or cost cap."
+  ]
+}
