@@ -24,6 +24,25 @@ trained from scratch on FineWeb-Edu `sample-10BT`. The public training label is
 The base model is ready for downstream work. The next model work is posttraining in
 `esme-posttrain`, not another pretraining launch.
 
+## Training Telemetry
+
+Telemetry from the accepted `pretrain_214m_b200` run, plotted from the run's
+`metrics.jsonl` and `throughput.csv`:
+
+![Train and validation loss vs training tokens](assets/fig-pretrain-loss-vs-tokens.svg)
+
+![Throughput and MFU stability over the run](assets/fig-pretrain-throughput-mfu.svg)
+
+Regenerate the figures from the raw run artifacts (fetched read-only from the
+run's Modal volume, which kept its pre-rename name `llm-pretrain-214m-b200`):
+
+```bash
+modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/metrics.jsonl runs/pretrain-214m-b200/pretrain_214m_b200/
+modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/throughput.csv runs/pretrain-214m-b200/pretrain_214m_b200/
+modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/run-summary.json runs/pretrain-214m-b200/pretrain_214m_b200/
+uv run scripts/plot_run_telemetry.py --json
+```
+
 ## What Is Here
 
 - Data tools for local text files and FineWeb-Edu streaming splits.
