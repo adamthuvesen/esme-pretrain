@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import statistics
 import sys
 from dataclasses import dataclass
@@ -56,6 +57,13 @@ CARD_HEIGHT = 560
 # isolated uv environment, so the value is repeated here).
 B200_PEAK_TFLOPS = 2250.0
 
+# Chinchilla-optimal reference: 20 tokens/param at the run card's expected
+# parameter count 213,960,192 = 4,279,203,840 tokens.
+EXPECTED_PARAMS = 213_960_192
+CHINCHILLA_TOKENS = 20 * EXPECTED_PARAMS
+REFERENCE_GREY = "#9aa1ad"
+
+LOSS_MEDIAN_WINDOW = 25  # 25 samples x 10-step cadence = 250 steps.
 THROUGHPUT_MEDIAN_WINDOW = 25  # 25 samples x 10-step cadence = 250 steps.
 
 
@@ -258,8 +266,10 @@ def token_axis_ticks(max_tokens: float) -> tuple[list[float], list[str]]:
 def build_loss_figure(telemetry: RunTelemetry) -> go.Figure:
     train_tokens = [telemetry.tokens_at(step) for step in telemetry.train_steps]
     val_tokens = [telemetry.tokens_at(step) for step in telemetry.val_steps]
+    smoothed_train = rolling_median(telemetry.train_loss, LOSS_MEDIAN_WINDOW)
     final_val = telemetry.val_loss[-1]
     total_tokens = telemetry.tokens_at(telemetry.train_steps[-1])
+    chinchilla_ratio = total_tokens / CHINCHILLA_TOKENS
 
     figure = go.Figure(
         layout=card_layout(
@@ -270,8 +280,8 @@ def build_loss_figure(telemetry: RunTelemetry) -> go.Figure:
             ),
             conclusion=(
                 "Conclusion: validation loss tracks training loss down to"
-                f" {final_val:.2f} with no divergence through the full"
-                f" {total_tokens / 1e9:.2f}B-token budget."
+                f" {final_val:.2f} and is still falling {chinchilla_ratio:.1f}x past"
+                " the Chinchilla-optimal token budget."
             ),
         )
     )
@@ -280,8 +290,18 @@ def build_loss_figure(telemetry: RunTelemetry) -> go.Figure:
             x=train_tokens,
             y=telemetry.train_loss,
             mode="lines",
-            name="train loss",
-            line={"color": BLUE, "width": 1.4},
+            name="train loss (raw)",
+            line={"color": BLUE, "width": 1},
+            opacity=0.35,
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=train_tokens,
+            y=smoothed_train,
+            mode="lines",
+            name="train loss (250-step median)",
+            line={"color": BLUE, "width": 2.4},
         )
     )
     figure.add_trace(
@@ -295,18 +315,45 @@ def build_loss_figure(telemetry: RunTelemetry) -> go.Figure:
         )
     )
     tickvals, ticktext = token_axis_ticks(total_tokens)
+    loss_ticks = [3, 4, 5, 7, 10]
     figure.update_layout(
         xaxis=styled_axis(range=[0, total_tokens * 1.04], tickvals=tickvals, ticktext=ticktext),
-        yaxis=styled_axis(title={"text": "loss"}, range=[2, 11]),
+        yaxis=styled_axis(
+            title={"text": "loss"},
+            type="log",
+            range=[math.log10(2.5), math.log10(11)],
+            tickvals=loss_ticks,
+            ticktext=[str(tick) for tick in loss_ticks],
+        ),
     )
-    figure.add_annotation(
-        value_annotation(f"val {final_val:.2f}", x=val_tokens[-1], y=final_val, ax=-6, ay=-42)
+    # Quiet compute-optimal reference; y coordinates on a log axis are log10 values.
+    figure.add_shape(
+        type="line",
+        xref="x",
+        yref="paper",
+        x0=CHINCHILLA_TOKENS,
+        x1=CHINCHILLA_TOKENS,
+        y0=0,
+        y1=1,
+        line={"color": REFERENCE_GREY, "width": 1, "dash": "dash"},
     )
     figure.add_annotation(
         {
-            "text": "train (every 10 steps)",
-            "x": total_tokens * 0.42,
-            "y": 4.6,
+            "text": "Chinchilla-optimal (20 tok/param)",
+            "x": CHINCHILLA_TOKENS,
+            "yref": "paper",
+            "y": 0.97,
+            "showarrow": False,
+            "xanchor": "left",
+            "xshift": 6,
+            "font": {"family": FONT_FAMILY, "size": 12, "color": REFERENCE_GREY},
+        }
+    )
+    figure.add_annotation(
+        {
+            "text": "train (250-step median)",
+            "x": total_tokens * 0.55,
+            "y": math.log10(4.6),
             "showarrow": False,
             "xanchor": "left",
             "font": {"family": FONT_FAMILY, "size": 13, "color": BLUE},
@@ -315,8 +362,8 @@ def build_loss_figure(telemetry: RunTelemetry) -> go.Figure:
     figure.add_annotation(
         {
             "text": "validation (every 500 steps)",
-            "x": total_tokens * 0.42,
-            "y": 4.0,
+            "x": total_tokens * 0.55,
+            "y": math.log10(4.0),
             "showarrow": False,
             "xanchor": "left",
             "font": {"family": FONT_FAMILY, "size": 13, "color": RED},
@@ -353,7 +400,7 @@ def build_throughput_figure(telemetry: RunTelemetry) -> go.Figure:
             mode="lines",
             name="tokens/sec",
             line={"color": GREEN, "width": 1},
-            opacity=0.35,
+            opacity=0.28,
         )
     )
     figure.add_trace(
@@ -396,14 +443,6 @@ def build_throughput_figure(telemetry: RunTelemetry) -> go.Figure:
             marker={"opacity": 0},
             hoverinfo="skip",
         )
-    )
-    figure.add_shape(
-        type="line",
-        x0=0,
-        x1=tokens[-1],
-        y0=steady,
-        y1=steady,
-        line={"color": TITLE_COLOR, "width": 1, "dash": "dot"},
     )
     figure.add_annotation(
         value_annotation(
