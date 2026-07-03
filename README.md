@@ -49,8 +49,8 @@ Telemetry from the `pretrain_214m_b200` run, plotted from the run's
   `BackboneConfig`.
 - Training code with checkpoint/resume checks, fixed validation batches, local
   metrics, and optional W&B logging.
-- Training entrypoints for the current 214M B200 shape, which need an explicit
-  `--approved` flag to launch.
+- Training entrypoints for the current 214M B200 shape, launched with an
+  explicit `--approved` flag.
 - Post-training evaluation, bits-per-byte reporting, and `llm-infer` export.
 
 Active code lives in [`src/esme_pretrain/`](src/esme_pretrain/).
@@ -80,50 +80,46 @@ by default. For a fork or mirror, pass the expected owner/repo substring:
 uv run esme-pretrain doctor --expected-origin <owner/repo>
 ```
 
-Validate the current pretraining launch surface without spend:
+Check the pretraining launch config without touching data or GPUs:
 
 ```bash
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
 
 That command checks the pinned config, dataset revision, split rule, GPU profile,
-token budget, artifact manifest, and Modal command. It must not download
+token budget, artifact manifest, and Modal command. It does not download
 FineWeb-Edu data or start training.
 
 ## Common Commands
 
-Prepare a local text dataset:
-
 ```bash
-uv run esme-pretrain prepare-data --input <text-file> --output-dir data/processed/<name> --context-length 1024 --token-budget <tokens> --json
-```
+# Prepare a local text dataset into packed tokens
+uv run esme-pretrain prepare-data \
+  --input <text-file> --output-dir data/processed/<name> \
+  --context-length 1024 --token-budget <tokens> --json
 
-Evaluate a checkpoint:
+# Evaluate a checkpoint on the fixed validation batches
+uv run esme-pretrain eval-checkpoints \
+  --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
+  --checkpoint <run-dir>/checkpoint.pt --eval-token-budget 10000000 \
+  --output <run-dir>/base-eval.json --json
 
-```bash
-uv run esme-pretrain eval-checkpoints --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json --checkpoint <run-dir>/checkpoint.pt --eval-token-budget 10000000 --output <run-dir>/base-eval.json --json
-```
+# Turn an eval into an acceptance report
+uv run esme-pretrain base-acceptance-report \
+  --run-dir <run-dir> --eval <run-dir>/base-eval.json \
+  --output <run-dir>/base-acceptance-report.md --json
 
-Generate an acceptance report:
-
-```bash
-uv run esme-pretrain base-acceptance-report --run-dir <run-dir> --eval <run-dir>/base-eval.json --output <run-dir>/base-acceptance-report.md --json
-```
-
-Export for `llm-infer`:
-
-```bash
-uv run esme-pretrain export --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json --format llm-infer --output exports/pretrain-214m-b200 --json
+# Export the selected checkpoint for llm-infer
+uv run esme-pretrain export \
+  --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
+  --format llm-infer --output exports/pretrain-214m-b200 --json
 ```
 
 ## Full Pretraining
 
-Full pretraining spends real money, so it needs explicit approval. Do not launch
-FineWeb-Edu, ClimbMix, Modal, GPU, W&B write, or paid API work without it.
-
-A full launch needs the exact command, hardware target, cost cap, approval
-record, and `--approved` flag. Long paid runs should use detached Modal launch
-so a local laptop disconnect does not stop training.
+A full run streams FineWeb-Edu and trains on rented GPUs via Modal, so the
+entrypoint only launches with an explicit `--approved` flag. Use a detached
+Modal launch so a local disconnect does not stop training.
 
 B200 was picked because measurements on H100, H200, and B200 showed it had the
 lowest cost per token for this run.
