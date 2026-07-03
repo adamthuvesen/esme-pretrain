@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import esme_pretrain.cli.doctor as doctor_module
 from esme_pretrain.cli import main, run_doctor
 from esme_pretrain.pretrain_run import load_pretrain_config
 
@@ -39,6 +40,23 @@ def test_doctor_passes_for_repo_scaffold() -> None:
         "pyproject.toml",
         "git remote",
     }
+
+
+def test_doctor_accepts_configured_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        doctor_module,
+        "_git_remote_urls",
+        lambda repo_root: {"origin": "git@github.com:example/esme-pretrain-fork.git"},
+    )
+
+    default_ok, _ = doctor_module.run_doctor(REPO_ROOT)
+    configured_ok, configured_checks = doctor_module.run_doctor(
+        REPO_ROOT, expected_origin="example/esme-pretrain-fork"
+    )
+
+    assert not default_ok
+    assert configured_ok
+    assert next(check for check in configured_checks if check.name == "git remote").ok
 
 
 def test_pilot_fixture_is_committed_text() -> None:

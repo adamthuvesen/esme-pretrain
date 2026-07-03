@@ -1,9 +1,26 @@
 # esme-pretrain
 
-`Esme-214M-Base` is a language model trained from scratch. `esme-pretrain`
-contains the base-model pretraining code: data preparation, tokenizer training,
+`esme-pretrain` is the pretraining lab for `Esme-214M-Base`: a
+213,960,192-parameter dense decoder-only language model trained from scratch on
+FineWeb-Edu `sample-10BT`.
+
+This repo owns the full base-model path: data preparation, tokenizer training,
 model code, training checks, checkpoint evaluation, reporting, and export to
 `llm-infer`.
+
+## First Minute
+
+- **What trained:** `Esme-214M-Base`, a dense 30-layer `214M` model trained on
+  FineWeb-Edu `sample-10BT` for the public `10B` token run.
+- **Why it matters:** the model is intentionally small enough to make the full
+  LLM lifecycle visible, fast to inspect, and cheap to repeat in controlled
+  pieces.
+- **What proves it:** the accepted run has the locked config, run card, status
+  doc, post-run eval, bits-per-byte reporting, acceptance report, export bundle,
+  and telemetry plots below.
+- **Where to start:** read [`docs/status.md`](docs/status.md), then
+  [`docs/architecture.md`](docs/architecture.md), then run the local checks in
+  [Quickstart](#quickstart).
 
 ### Why 214M?
 
@@ -73,6 +90,13 @@ uv run ruff format --check .
 uv run pytest
 uv run esme-pretrain status --json
 uv run esme-pretrain doctor
+```
+
+`doctor` expects no `origin` remote or one containing `adamthuvesen/esme-pretrain`
+by default. For a fork or mirror, pass the expected owner/repo substring:
+
+```bash
+uv run esme-pretrain doctor --expected-origin <owner/repo>
 ```
 
 Validate the current pretraining launch surface without spend:
