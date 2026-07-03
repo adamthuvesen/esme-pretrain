@@ -107,7 +107,6 @@
       }
     },
     "max_cost_usd": 100,
-    "absolute_cost_cap_usd": 100,
     "runtime_spend_stop_usd": 100,
     "allow_retries": false,
     "modal_volume": "esme-pretrain-214m-b200",

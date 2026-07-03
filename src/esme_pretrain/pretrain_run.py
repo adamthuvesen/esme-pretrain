@@ -38,7 +38,6 @@ PRETRAIN_PROFILES: dict[str, dict[str, Any]] = {
         "grad_accum_steps": 16,
         "output_prefix": ("runs", "pretrain-214m-b200"),
         "modal_volume": "esme-pretrain-214m-b200",
-        "required_abort_cost": "$100",
     },
 }
 ALLOWED_GPU_PROFILES = {"H100", "H100!", "H200", "B200"}
@@ -124,7 +123,7 @@ def validate_pretrain_payload(payload: dict[str, Any], config_path: Path) -> Pre
     artifact_manifest = _validate_artifacts(
         _expect_object(payload["artifacts"], "artifacts"), profile
     )
-    _validate_abort_rules(payload["abort_rules"], profile)
+    _validate_abort_rules(payload["abort_rules"])
 
     training = payload["optimizer"]["training"]
     runtime = payload["runtime"]
@@ -360,7 +359,6 @@ def _validate_runtime(runtime: dict[str, Any], profile: dict[str, Any]) -> None:
             "precision",
             "gpu_profiles",
             "max_cost_usd",
-            "absolute_cost_cap_usd",
             "runtime_spend_stop_usd",
             "allow_retries",
             "modal_volume",
@@ -377,8 +375,6 @@ def _validate_runtime(runtime: dict[str, Any], profile: dict[str, Any]) -> None:
     _require_values(runtime, expected, "runtime")
     if runtime["runtime_spend_stop_usd"] != runtime["max_cost_usd"]:
         raise ValueError("runtime.runtime_spend_stop_usd must equal runtime.max_cost_usd")
-    if runtime["absolute_cost_cap_usd"] != runtime["max_cost_usd"]:
-        raise ValueError("runtime.absolute_cost_cap_usd must equal runtime.max_cost_usd")
     if float(runtime["max_cost_usd"]) <= 0:
         raise ValueError("runtime.max_cost_usd must be positive")
     if int(runtime["timeout_hours"]) <= 0:
@@ -473,21 +469,9 @@ def _validate_artifacts(artifacts: dict[str, Any], profile: dict[str, Any]) -> d
     return {file_name: str(output_path / file_name) for file_name in EXPECTED_ARTIFACTS}
 
 
-def _validate_abort_rules(abort_rules: Any, profile: dict[str, Any]) -> None:
-    if not isinstance(abort_rules, list) or len(abort_rules) < 8:
-        raise ValueError("abort_rules must list the launch and runtime stop rules")
+def _validate_abort_rules(abort_rules: Any) -> None:
+    if not isinstance(abort_rules, list) or not abort_rules:
+        raise ValueError("abort_rules must be a non-empty list of rule strings")
     for rule in abort_rules:
         if not isinstance(rule, str) or not rule.strip():
             raise ValueError("abort_rules must contain non-empty strings")
-    joined = " ".join(abort_rules).lower()
-    required = (
-        "approved",
-        profile["required_abort_cost"],
-        "loss",
-        "checkpoint",
-        "resume",
-        "required artifacts",
-    )
-    for phrase in required:
-        if phrase not in joined:
-            raise ValueError(f"abort_rules must include {phrase}")

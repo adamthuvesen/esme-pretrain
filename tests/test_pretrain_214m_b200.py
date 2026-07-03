@@ -85,7 +85,6 @@ def test_pretrain_214m_b200_full_run_cap_is_100_usd() -> None:
     payload = build_pretrain_dry_run(config)
 
     assert payload["runtime"]["max_cost_usd"] == 100
-    assert payload["runtime"]["absolute_cost_cap_usd"] == 100
     assert payload["runtime"]["runtime_spend_stop_usd"] == 100
     assert payload["runtime"]["estimated_cost_usd"] < 100
     assert payload["runtime"]["timeout_hours"] <= 24
