@@ -75,6 +75,23 @@ def test_forward_returns_raw_logits() -> None:
     assert float(logits.detach().abs().max()) > 5.0
 
 
+def test_attention_is_causal() -> None:
+    # Changing a later token must not change logits at any earlier position. This is
+    # the property that keeps the next-token loss from seeing its own answer; without
+    # it, training and eval would silently leak future tokens.
+    torch.manual_seed(0)
+    model = DenseBackbone(_tiny())
+    model.eval()
+    ids = torch.randint(0, 128, (1, 12))
+    altered = ids.clone()
+    altered[0, -1] = (int(altered[0, -1]) + 1) % 128
+    with torch.no_grad():
+        base = model(ids)
+        after = model(altered)
+    assert torch.allclose(base[:, :-1], after[:, :-1], atol=1e-6)
+    assert not torch.allclose(base[:, -1], after[:, -1], atol=1e-6)
+
+
 def test_qk_norm_adds_head_dim_params() -> None:
     with_norm = _tiny(qk_norm=True).parameter_count()["total"]
     without_norm = _tiny(qk_norm=False).parameter_count()["total"]

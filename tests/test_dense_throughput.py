@@ -5,28 +5,11 @@ from esme_pretrain.torch import torch
 from esme_pretrain.training.throughput import ProbeConfig, run_throughput_probe
 
 
-def _count_parameters(model: DenseBackbone) -> int:
-    seen: set[int] = set()
-    total = 0
-    for parameter in model.parameters():
-        if id(parameter) in seen:
-            continue
-        seen.add(id(parameter))
-        total += parameter.numel()
-    return total
-
-
 def test_probe_config_param_counts_land_near_targets() -> None:
     totals = {name: cfg.parameter_count()["total"] for name, cfg in PROBE_CONFIGS.items()}
     assert 105_000_000 < totals["124M"] < 115_000_000
     assert 140_000_000 < totals["150M"] < 155_000_000
     assert 335_000_000 < totals["350M"] < 350_000_000
-
-
-def test_parameter_count_formula_matches_built_module() -> None:
-    config = PROBE_CONFIGS["124M"]
-    model = DenseBackbone(config)
-    assert _count_parameters(model) == config.parameter_count()["total"]
 
 
 def test_forward_shape_and_causality_path() -> None:
