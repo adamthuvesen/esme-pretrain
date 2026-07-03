@@ -9,20 +9,13 @@
 """Render README training-telemetry figures from pretrain run artifacts.
 
 Reads `metrics.jsonl`, `throughput.csv`, and `run-summary.json` from a run
-directory (downloaded read-only from the run's Modal volume) and exports two
-static SVG cards into `assets/`:
+directory and exports two static SVG cards into `assets/`:
 
 - fig-pretrain-loss-vs-tokens.svg: train + validation loss vs training tokens.
 - fig-pretrain-throughput-mfu.svg: tokens/sec stability with an MFU axis.
 
     uv run scripts/plot_run_telemetry.py \
         --run-dir runs/pretrain-214m-b200/pretrain_214m_b200 --output-dir assets --json
-
-Fetch the inputs from the Modal volume (the volume kept its pre-rename name):
-
-    modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/metrics.jsonl <run-dir>/
-    modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/throughput.csv <run-dir>/
-    modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/run-summary.json <run-dir>/
 """
 
 from __future__ import annotations

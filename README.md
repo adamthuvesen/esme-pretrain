@@ -1,24 +1,22 @@
 # esme-pretrain
 
-`esme-pretrain` is the pretraining lab for `Esme-214M-Base`: a
-213,960,192-parameter dense decoder-only language model trained from scratch on
-FineWeb-Edu `sample-10BT`.
+`esme-pretrain` trains `Esme-214M-Base`, a 214M-parameter dense decoder-only
+language model, from scratch on FineWeb-Edu `sample-10BT`.
 
-This repo owns the full base-model path: data preparation, tokenizer training,
-model code, training checks, checkpoint evaluation, reporting, and export to
+It covers the full base-model path: data preparation, tokenizer training, model
+code, training checks, checkpoint evaluation, reporting, and export to
 `llm-infer`.
 
-The accepted public run is `pretrain_214m_b200`, recorded in
+The base checkpoint comes from one run, `pretrain_214m_b200`, recorded in
 [`docs/status.md`](docs/status.md) and
 [`docs/run-cards/pretrain-214m-b200.md`](docs/run-cards/pretrain-214m-b200.md).
 Those docs, the locked config, fixed checkpoint eval, bits-per-byte reporting,
 acceptance report, export bundle, and telemetry plots are the evidence trail for
 the base checkpoint.
 
-Esme-214M is intentionally small for learning purposes. That makes the full LLM
-lifecycle easier to build, keeps iteration fast and costs low, and makes
-failures easier to diagnose, while still going through real training,
-evaluation, export, post-training, and inference.
+Esme-214M is deliberately small. That keeps the full LLM lifecycle cheap and
+fast to build and its failures easy to diagnose, while still going through real
+training, evaluation, export, post-training, and inference.
 
 For the model and training design, read
 [`docs/architecture.md`](docs/architecture.md). Then run the local checks in
@@ -26,34 +24,21 @@ For the model and training design, read
 
 ## Current State
 
-`Esme-214M-Base` is the current base checkpoint.
+`Esme-214M-Base` is the current base checkpoint: 213,960,192 parameters trained
+on a nominal `10B`-token budget — `10,229,514,240` tokens over `26,015`
+optimizer steps.
 
-`Esme-214M-Base` is a 213,960,192-parameter dense decoder-only transformer
-trained from scratch on FineWeb-Edu `sample-10BT`. The public training label is
-`10B` tokens; the exact configured budget is `10,229,514,240` tokens over
-`26,015` optimizer steps.
-
-The base model is ready for downstream work. The next model work is posttraining in
+The base model is ready for downstream work. The next step is post-training in
 `esme-posttrain`, not another pretraining launch.
 
 ## Training Telemetry
 
-Telemetry from the accepted `pretrain_214m_b200` run, plotted from the run's
+Telemetry from the `pretrain_214m_b200` run, plotted from the run's
 `metrics.jsonl` and `throughput.csv`:
 
 ![Train and validation loss vs training tokens](assets/fig-pretrain-loss-vs-tokens.svg)
 
 ![Throughput and MFU stability over the run](assets/fig-pretrain-throughput-mfu.svg)
-
-Regenerate the figures from the raw run artifacts (fetched read-only from the
-run's Modal volume, which kept its pre-rename name `llm-pretrain-214m-b200`):
-
-```bash
-modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/metrics.jsonl runs/pretrain-214m-b200/pretrain_214m_b200/
-modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/throughput.csv runs/pretrain-214m-b200/pretrain_214m_b200/
-modal volume get llm-pretrain-214m-b200 pretrain_214m_b200/run-summary.json runs/pretrain-214m-b200/pretrain_214m_b200/
-uv run scripts/plot_run_telemetry.py --json
-```
 
 ## What Is Here
 
@@ -64,7 +49,8 @@ uv run scripts/plot_run_telemetry.py --json
   `BackboneConfig`.
 - Training code with checkpoint/resume checks, fixed validation batches, local
   metrics, and optional W&B logging.
-- Approval-gated training entrypoints for the current `214M B200` shape.
+- Training entrypoints for the current 214M B200 shape, which need an explicit
+  `--approved` flag to launch.
 - Post-training evaluation, bits-per-byte reporting, and `llm-infer` export.
 
 Active code lives in [`src/esme_pretrain/`](src/esme_pretrain/).
@@ -132,30 +118,15 @@ uv run esme-pretrain export --checkpoint <selected-checkpoint.pt> --tokenizer <r
 
 ## Full Pretraining
 
-Full pretraining is approval-gated. Do not launch FineWeb-Edu, ClimbMix, Modal,
-GPU, W&B write, or paid API work without explicit approval.
+Full pretraining spends real money, so it needs explicit approval. Do not launch
+FineWeb-Edu, ClimbMix, Modal, GPU, W&B write, or paid API work without it.
 
 A full launch needs the exact command, hardware target, cost cap, approval
 record, and `--approved` flag. Long paid runs should use detached Modal launch
 so a local laptop disconnect does not stop training.
 
-## Files That Stay Out Of Git
-
-Keep runtime and secret material ignored:
-
-- `runs/`
-- `checkpoints/`
-- `exports/`
-- `outputs/`
-- `payloads/`
-- `wandb/`
-- `.modal/`
-- `logs/`
-- `.env*`
-- raw or processed training data
-
-Config changes that alter the dataset source, token budget, model shape,
-tokenizer contract, GPU choice, or cost cap are new run decisions.
+B200 was picked because measurements on H100, H200, and B200 showed it had the
+lowest cost per token for this run.
 
 ## Documentation
 
