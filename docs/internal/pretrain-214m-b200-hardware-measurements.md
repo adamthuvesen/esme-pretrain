@@ -37,7 +37,6 @@ Actual measured setup spend was `$0.8583`.
 - Config: `configs/pretrain_214m_b200.json`
 - Run card: `docs/run-cards/pretrain-214m-b200.md`
 - Dry-run evidence path: `runs/pretrain-214m-b200/dry-run-214m.json`
-- Spend ledger: `runs/pretrain-214m-b200/gpu-smoke-ledger.json`
 - H100! record: `runs/pretrain-214m-b200/gpu-smoke-h100bang.json`
 - H200 record: `runs/pretrain-214m-b200/gpu-smoke-h200.json`
 - B200 record: `runs/pretrain-214m-b200/gpu-smoke-b200.json`

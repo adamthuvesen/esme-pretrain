@@ -13,10 +13,6 @@ from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS, load_pretrain_config
 CONFIG_214M_B200 = Path("configs/pretrain_214m_b200.json")
 
 
-def _gpu_smoke_module():
-    return gpu_smoke
-
-
 def test_pretrain_214m_b200_config_validates_conventional_keystone_contract() -> None:
     config = load_pretrain_config(CONFIG_214M_B200)
 
@@ -91,61 +87,21 @@ def test_pretrain_214m_b200_full_run_cap_is_100_usd() -> None:
     assert payload["runtime"]["selected_gpu_profile"]["expected_duration_hours"] <= 24
 
 
-def test_pretrain_gpu_smoke_ledger_refuses_cap_overrun(tmp_path: Path) -> None:
-    module = _gpu_smoke_module()
-    ledger_path = tmp_path / "ledger.json"
-
-    first = module.reserve_smoke_attempt(
-        ledger_path,
-        gpu="H100!",
-        reserved_cost_usd=6.0,
-        spend_cap_usd=10.0,
-        params={"max_steps": 3},
+def test_pretrain_gpu_smoke_refuses_over_cap() -> None:
+    exit_code = gpu_smoke.launch(
+        ["--config", str(CONFIG_214M_B200), "--spend-cap-usd", "0.0001", "--check-only"]
     )
-    assert first["status"] == "reserved"
-
-    try:
-        module.reserve_smoke_attempt(
-            ledger_path,
-            gpu="H200",
-            reserved_cost_usd=5.0,
-            spend_cap_usd=10.0,
-            params={"max_steps": 3},
-        )
-    except ValueError as error:
-        assert "smoke spend cap would be exceeded" in str(error)
-    else:
-        raise AssertionError("ledger allowed an over-cap reservation")
+    assert exit_code == 2
 
 
-def test_pretrain_gpu_smoke_ledger_releases_unused_reserve(tmp_path: Path) -> None:
-    module = _gpu_smoke_module()
-    ledger_path = tmp_path / "ledger.json"
-
-    reserved = module.reserve_smoke_attempt(
-        ledger_path,
-        gpu="H100!",
-        reserved_cost_usd=6.0,
-        spend_cap_usd=10.0,
-        params={"max_steps": 3},
+def test_pretrain_gpu_smoke_check_only_passes_under_cap(capsys) -> None:
+    exit_code = gpu_smoke.launch(
+        ["--config", str(CONFIG_214M_B200), "--spend-cap-usd", "1000", "--check-only"]
     )
-    module.mark_smoke_attempt(
-        ledger_path,
-        reserved["attempt_id"],
-        status="complete",
-        actual_cost_usd=1.25,
-        result={"status": "smoke_complete"},
-    )
-    second = module.reserve_smoke_attempt(
-        ledger_path,
-        gpu="H200",
-        reserved_cost_usd=5.0,
-        spend_cap_usd=10.0,
-        params={"max_steps": 3},
-    )
-
-    assert second["status"] == "reserved"
-    assert second["spend_used_before_usd"] == 1.25
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "spend_cap_ok"
+    assert payload["worst_case_cost_usd"] <= payload["spend_cap_usd"]
 
 
 def test_pretrain_config_rejects_drift(tmp_path: Path) -> None:
