@@ -8,26 +8,21 @@ This repo owns the full base-model path: data preparation, tokenizer training,
 model code, training checks, checkpoint evaluation, reporting, and export to
 `llm-infer`.
 
-## First Minute
+The accepted public run is `pretrain_214m_b200`, recorded in
+[`docs/status.md`](docs/status.md) and
+[`docs/run-cards/pretrain-214m-b200.md`](docs/run-cards/pretrain-214m-b200.md).
+Those docs, the locked config, fixed checkpoint eval, bits-per-byte reporting,
+acceptance report, export bundle, and telemetry plots are the evidence trail for
+the base checkpoint.
 
-- **What trained:** `Esme-214M-Base`, a dense 30-layer `214M` model trained on
-  FineWeb-Edu `sample-10BT` for the public `10B` token run.
-- **Why it matters:** the model is intentionally small enough to make the full
-  LLM lifecycle visible, fast to inspect, and cheap to repeat in controlled
-  pieces.
-- **What proves it:** the accepted run has the locked config, run card, status
-  doc, post-run eval, bits-per-byte reporting, acceptance report, export bundle,
-  and telemetry plots below.
-- **Where to start:** read [`docs/status.md`](docs/status.md), then
-  [`docs/architecture.md`](docs/architecture.md), then run the local checks in
-  [Quickstart](#quickstart).
+Esme-214M is intentionally small for learning purposes. That makes the full LLM
+lifecycle easier to build, keeps iteration fast and costs low, and makes
+failures easier to diagnose, while still going through real training,
+evaluation, export, post-training, and inference.
 
-### Why 214M?
-
-Esme-214M is intentionally small for learning purposes. That makes the full LLM lifecycle easier to
-build, keeps iteration fast and costs low, and makes failures easier to
-diagnose, while still going through real training, evaluation, export,
-post-training, and inference.
+For the model and training design, read
+[`docs/architecture.md`](docs/architecture.md). Then run the local checks in
+[Quickstart](#quickstart).
 
 ## Current State
 
@@ -167,12 +162,21 @@ tokenizer contract, GPU choice, or cost cap are new run decisions.
 - Current state: [`docs/status.md`](docs/status.md)
 - Model and training design: [`docs/architecture.md`](docs/architecture.md)
 
-## Related Repos
+## Related Repositories
 
-- `esme-posttrain`: SFT and simple-task RL for the current base checkpoint.
-- `llm-rlvr`: SFT and execution-verified RLVR experiments.
-- `grpo-decomp`: measurement work for RLVR gains.
-- `llm-infer`: loading, serving, and benchmarking exported checkpoints.
+These repositories are separate codebases connected by model artifacts and
+measurement questions:
+
+- [`esme-pretrain`](https://github.com/adamthuvesen/esme-pretrain): trains
+  `Esme-214M-Base` from scratch.
+- [`esme-posttrain`](https://github.com/adamthuvesen/esme-posttrain): adapts
+  the base checkpoint with SFT, DPO, and verifier-backed RLVR.
+- [`llm-infer`](https://github.com/adamthuvesen/llm-infer): loads, serves, and
+  benchmarks exported Esme checkpoints.
+- [`llm-rlvr`](https://github.com/adamthuvesen/llm-rlvr): provides a reusable
+  RLVR harness with text-to-SQL as the reference task.
+- [`grpo-decomp`](https://github.com/adamthuvesen/grpo-decomp): measures where
+  GRPO gains come from, separating reliability from new capability.
 
 ## References
 
