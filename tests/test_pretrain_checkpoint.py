@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
-from esme_pretrain.modeling.pretrain_checkpoint import (
+from esme_pretrain.torch import torch
+from esme_pretrain.training.checkpointing import (
     load_pretrain_checkpoint,
     save_pretrain_checkpoint,
 )
-from esme_pretrain.torch import torch
 
 
 def _tiny() -> BackboneConfig:
@@ -87,3 +87,36 @@ def test_checkpoint_load_rejects_extra_keys(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="unexpected keys.*legacy_note"):
         load_pretrain_checkpoint(path)
+
+
+def test_pre_refactor_format_2_payload_still_loads(tmp_path: Path) -> None:
+    # Payload dict built by hand in the exact shape the pre-refactor
+    # modeling/pretrain_checkpoint.py wrote, so checkpoints saved before the module
+    # moved to training/checkpointing.py keep loading.
+    config = _tiny()
+    model = DenseBackbone(config)
+    model.eval()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    payload = {
+        "format_version": 2,
+        "config": config.to_dict(),
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "step": 26015,
+        "metrics": {"loss": 2.5},
+        "data_offset_tokens": 544,
+        "rng_state": {"torch": torch.get_rng_state()},
+    }
+    path = tmp_path / "pre-refactor-checkpoint.pt"
+    torch.save(payload, path)
+
+    loaded = load_pretrain_checkpoint(path)
+    assert loaded.step == 26015
+    assert loaded.config == config
+    assert loaded.data_offset_tokens == 544
+    assert loaded.rng_state
+    assert loaded.metrics["loss"] == pytest.approx(2.5)
+
+    input_ids = torch.randint(0, config.vocab_size, (2, 16))
+    with torch.no_grad():
+        assert torch.allclose(model(input_ids), loaded.model(input_ids), atol=1e-6)

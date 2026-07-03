@@ -157,9 +157,9 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
     import torch
 
     from esme_pretrain.modeling.backbone import BackboneConfig
-    from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
+    from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
     from esme_pretrain.training.data_stream import Batch
-    from esme_pretrain.training.metrics_logger import RunLogger, WandbSettings
+    from esme_pretrain.training.metrics import RunLogger, WandbSettings
     from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
 
     model_config = BackboneConfig.from_dict(config_payload["model"])

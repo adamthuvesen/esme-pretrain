@@ -3,34 +3,41 @@
 Uses bf16 autocast, optional ``torch.compile``, fused AdamW, gradient accumulation,
 streaming data loading, and periodic eval/checkpointing. LR schedules: cosine or WSD.
 Metrics go to local JSONL/CSV with optional W&B mirroring via :class:`RunLogger`.
+
+Plumbing lives in the training spine: seed/device/precision/LR schedules in
+``training/runtime.py``, checkpoint save/load in ``training/checkpointing.py``,
+metrics in ``training/metrics.py``. This module holds the config, result, and loop.
 """
 
 from __future__ import annotations
 
 import math
 import time
-from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from statistics import median
 from typing import Any
 
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone, language_model_loss
-from esme_pretrain.modeling.pretrain_checkpoint import (
+from esme_pretrain.torch import torch
+from esme_pretrain.training.checkpointing import (
     capture_rng_state,
     load_pretrain_checkpoint,
     restore_rng_state,
     save_pretrain_checkpoint,
 )
-from esme_pretrain.torch import torch
 from esme_pretrain.training.data_stream import Batch
 from esme_pretrain.training.device_profile import peak_tflops_for_device
+from esme_pretrain.training.errors import TrainerError
 from esme_pretrain.training.eval_batch import mean_ce_loss
-from esme_pretrain.training.metrics_logger import RunLogger
-
-# bf16 is the training dtype on H100/A100; float32 is the CPU/test fallback. fp16 is
-# rejected in run_pretrain (it needs a GradScaler this loop does not wire).
-_DTYPES = {"bfloat16": torch.bfloat16, "float32": torch.float32}
+from esme_pretrain.training.metrics import RunLogger
+from esme_pretrain.training.runtime import (
+    autocast_context,
+    learning_rate_schedule,
+    resolve_device,
+    resolve_dtype,
+    set_seed,
+)
 
 
 @dataclass(frozen=True)
@@ -66,28 +73,28 @@ class PretrainConfig:
 
     def __post_init__(self) -> None:
         if self.max_steps < 1:
-            raise ValueError("max_steps must be at least 1")
+            raise TrainerError("max_steps must be at least 1")
         if self.micro_batch_size < 1:
-            raise ValueError("micro_batch_size must be at least 1")
+            raise TrainerError("micro_batch_size must be at least 1")
         if self.grad_accum_steps < 1:
-            raise ValueError("grad_accum_steps must be at least 1")
+            raise TrainerError("grad_accum_steps must be at least 1")
         if self.learning_rate <= 0:
-            raise ValueError("learning_rate must be positive")
+            raise TrainerError("learning_rate must be positive")
         if not 0.0 <= self.min_lr_ratio <= 1.0:
-            raise ValueError("min_lr_ratio must be in [0, 1]")
+            raise TrainerError("min_lr_ratio must be in [0, 1]")
         if self.lr_schedule not in {"cosine", "wsd"}:
-            raise ValueError("lr_schedule must be 'cosine' or 'wsd'")
+            raise TrainerError("lr_schedule must be 'cosine' or 'wsd'")
         if not 0.0 <= self.decay_fraction < 1.0:
-            raise ValueError("decay_fraction must be in [0, 1)")
+            raise TrainerError("decay_fraction must be in [0, 1)")
         if not 0 <= self.warmup_steps <= self.max_steps:
-            raise ValueError("warmup_steps must be in [0, max_steps]")
+            raise TrainerError("warmup_steps must be in [0, max_steps]")
         if self.grad_clip <= 0:
-            raise ValueError("grad_clip must be positive")
+            raise TrainerError("grad_clip must be positive")
         if self.log_interval < 1:
-            raise ValueError("log_interval must be at least 1")
+            raise TrainerError("log_interval must be at least 1")
         for name in ("eval_interval", "eval_batches", "checkpoint_interval", "sample_interval"):
             if getattr(self, name) < 0:
-                raise ValueError(f"{name} must be non-negative (0 disables)")
+                raise TrainerError(f"{name} must be non-negative (0 disables)")
 
     @property
     def tokens_per_step(self) -> int:
@@ -127,66 +134,6 @@ class PretrainResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-def cosine_lr(
-    step: int, *, warmup_steps: int, max_steps: int, max_lr: float, min_lr: float
-) -> float:
-    """Linear warmup to ``max_lr``, then cosine decay to ``min_lr`` by ``max_steps``."""
-    if warmup_steps > 0 and step < warmup_steps:
-        return max_lr * (step + 1) / warmup_steps
-    if step >= max_steps:
-        return min_lr
-    progress = (step - warmup_steps) / max(1, max_steps - warmup_steps)
-    coefficient = 0.5 * (1.0 + math.cos(math.pi * progress))
-    return min_lr + coefficient * (max_lr - min_lr)
-
-
-def wsd_lr(
-    step: int,
-    *,
-    warmup_steps: int,
-    max_steps: int,
-    max_lr: float,
-    min_lr: float,
-    decay_fraction: float,
-) -> float:
-    """Warmup -> stable at ``max_lr`` -> cosine-shaped decay to ``min_lr``.
-
-    The decay runs over the final ``decay_fraction`` of ``max_steps`` (WSD).
-    """
-    if warmup_steps > 0 and step < warmup_steps:
-        return max_lr * (step + 1) / warmup_steps
-    if step >= max_steps:
-        return min_lr
-    decay_steps = max(1, round(decay_fraction * max_steps))
-    decay_start = max_steps - decay_steps
-    if step < decay_start:
-        return max_lr
-    decay_progress = (step - decay_start) / decay_steps
-    coefficient = 0.5 * (1.0 + math.cos(math.pi * decay_progress))
-    return min_lr + coefficient * (max_lr - min_lr)
-
-
-def _learning_rate_at_step(
-    config: PretrainConfig, step: int, *, max_lr: float, min_lr: float
-) -> float:
-    if config.lr_schedule == "wsd":
-        return wsd_lr(
-            step,
-            warmup_steps=config.warmup_steps,
-            max_steps=config.max_steps,
-            max_lr=max_lr,
-            min_lr=min_lr,
-            decay_fraction=config.decay_fraction,
-        )
-    return cosine_lr(
-        step,
-        warmup_steps=config.warmup_steps,
-        max_steps=config.max_steps,
-        max_lr=max_lr,
-        min_lr=min_lr,
-    )
 
 
 def _param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str, Any]]:
@@ -302,28 +249,11 @@ def run_pretrain(
     :class:`Batch` (typically :class:`StreamingBatchLoader`). The train loader must
     be effectively endless. Returns a :class:`PretrainResult` summary.
     """
-    torch.manual_seed(config.seed)
-    device = torch.device(config.device)
+    set_seed(config.seed)
+    device = resolve_device(config.device)
     is_cuda = device.type == "cuda"
-    if is_cuda and not torch.cuda.is_available():
-        raise RuntimeError("cuda device requested but torch.cuda.is_available() is False")
-    if is_cuda:
-        # Modern, stable way to enable TF32 for fp32 matmuls (supersedes the older
-        # backends.cuda.matmul.allow_tf32 flag). Our matmuls run bf16 under autocast;
-        # this only affects any residual fp32 matmuls.
-        torch.set_float32_matmul_precision("high")
-
-    if config.dtype == "float16":
-        # fp16 needs loss scaling to avoid gradient underflow; this loop is bf16-first
-        # (H100/A100) and does not wire a GradScaler. Fail loudly rather than risk NaNs.
-        raise ValueError("float16 is unsupported (no GradScaler); use 'bfloat16' or 'float32'")
-    dtype = _DTYPES.get(config.dtype)
-    if dtype is None:
-        raise ValueError(f"unsupported dtype: {config.dtype}")
-    autocast_enabled = is_cuda and dtype is torch.bfloat16
-    autocast = (
-        torch.autocast(device_type="cuda", dtype=dtype) if autocast_enabled else nullcontext()
-    )
+    dtype = resolve_dtype(config.dtype)
+    autocast = autocast_context(device, dtype)
     notes: list[str] = []
 
     model: torch.nn.Module = DenseBackbone(config.model).to(device)
@@ -333,7 +263,7 @@ def run_pretrain(
     if config.resume_from is not None:
         loaded = load_pretrain_checkpoint(config.resume_from, map_location=device)
         if loaded.config != config.model:
-            raise ValueError("resume checkpoint config does not match requested pretrain config")
+            raise TrainerError("resume checkpoint config does not match requested pretrain config")
         model.load_state_dict(loaded.model.state_dict())
         model.to(device)
         start_step = loaded.step
@@ -348,7 +278,7 @@ def run_pretrain(
         # keeps it correct even if this run uses a different batch size than the original.
         if resume_data_offset:
             if not hasattr(train_loader, "skip_tokens"):
-                raise ValueError(
+                raise TrainerError(
                     "resume_from carries a data offset but train_loader has no "
                     "skip_tokens; pass a StreamingBatchLoader to resume the stream"
                 )
@@ -370,6 +300,14 @@ def run_pretrain(
     fused = config.use_fused_optimizer and is_cuda
     max_lr = config.learning_rate
     min_lr = config.learning_rate * config.min_lr_ratio
+    lr_at_step = learning_rate_schedule(
+        schedule=config.lr_schedule,
+        warmup_steps=config.warmup_steps,
+        max_steps=config.max_steps,
+        max_lr=max_lr,
+        min_lr=min_lr,
+        decay_fraction=config.decay_fraction,
+    )
     optimizer = torch.optim.AdamW(
         _param_groups(model, config.weight_decay),
         lr=max_lr,
@@ -398,7 +336,7 @@ def run_pretrain(
         torch.cuda.reset_peak_memory_stats(device)
 
     for step in range(start_step, config.max_steps):
-        learning_rate = _learning_rate_at_step(config, step, max_lr=max_lr, min_lr=min_lr)
+        learning_rate = lr_at_step(step)
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
 

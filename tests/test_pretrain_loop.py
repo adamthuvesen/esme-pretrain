@@ -11,11 +11,12 @@ import pytest
 
 import esme_pretrain.training.pretrain as pretrain_module
 from esme_pretrain.modeling.backbone import BackboneConfig
-from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
 from esme_pretrain.torch import torch
+from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 from esme_pretrain.training.data_stream import Batch, StreamingBatchLoader, synthetic_token_stream
-from esme_pretrain.training.metrics_logger import RunLogger, WandbSettings
-from esme_pretrain.training.pretrain import PretrainConfig, cosine_lr, run_pretrain, wsd_lr
+from esme_pretrain.training.metrics import RunLogger, WandbSettings
+from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
+from esme_pretrain.training.runtime import cosine_lr, wsd_lr
 
 
 def _model() -> BackboneConfig:

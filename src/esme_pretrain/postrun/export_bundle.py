@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
 from esme_pretrain.postrun.eval_checkpoints import file_sha256
 from esme_pretrain.torch import torch
+from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 
 EXPORT_FORMAT_VERSION = 1
 CANONICAL_BUNDLE_FORMAT = "llm_pretrain_dense_v1"

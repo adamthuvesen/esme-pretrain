@@ -33,18 +33,18 @@ from esme_pretrain.launch.pretrain import (
     build_pretrain_dry_run,
 )
 from esme_pretrain.modeling.backbone import BackboneConfig
-from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
 from esme_pretrain.pretrain_run import (
     PretrainLaunchConfig,
     load_pretrain_config,
     validate_pretrain_payload,
 )
+from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 from esme_pretrain.training.data_stream import (
     StreamingBatchLoader,
     synthetic_token_stream,
     tokenized_document_stream,
 )
-from esme_pretrain.training.metrics_logger import RunLogger, WandbSettings
+from esme_pretrain.training.metrics import RunLogger, WandbSettings
 from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

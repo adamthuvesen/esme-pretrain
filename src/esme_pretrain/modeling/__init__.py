@@ -1,1 +1,1 @@
-"""Model and checkpoint code."""
+"""Model code."""

@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
-from esme_pretrain.modeling.pretrain_checkpoint import save_pretrain_checkpoint
 from esme_pretrain.postrun import eval_checkpoints
 from esme_pretrain.postrun.acceptance_report import (
     BaseAcceptanceReportConfig,
@@ -28,6 +27,7 @@ from esme_pretrain.postrun.export_bundle import (
     export_checkpoint,
 )
 from esme_pretrain.torch import torch
+from esme_pretrain.training.checkpointing import save_pretrain_checkpoint
 
 
 def _tiny_config() -> BackboneConfig:

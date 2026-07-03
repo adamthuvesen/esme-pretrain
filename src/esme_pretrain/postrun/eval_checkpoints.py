@@ -13,9 +13,9 @@ from typing import Any, Protocol
 
 from esme_pretrain.data.corpus_stream import document_text_stream
 from esme_pretrain.modeling.backbone import BackboneConfig
-from esme_pretrain.modeling.pretrain_checkpoint import load_pretrain_checkpoint
 from esme_pretrain.pretrain_run import PretrainLaunchConfig, load_pretrain_config
 from esme_pretrain.torch import torch
+from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 from esme_pretrain.training.eval_batch import mean_ce_loss
 
 FINAL_WITHIN_BEST_MARGIN = 0.02

@@ -57,7 +57,7 @@ def capture_rng_state() -> dict[str, Any]:
 
         state["numpy"] = np.random.get_state()
     except ModuleNotFoundError:
-        # NumPy is optional in this env (runtime.py guards its absence); nothing to save.
+        # NumPy is optional in this env (the torch shim tolerates its absence); nothing to save.
         pass
     return state
 
