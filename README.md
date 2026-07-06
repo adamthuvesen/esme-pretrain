@@ -1,25 +1,23 @@
 # esme-pretrain
 
 `esme-pretrain` trains `Esme-214M-Base`, a 214M-parameter dense decoder-only
-language model, from scratch on FineWeb-Edu `sample-10BT`.
+language model, from scratch on FineWeb-Edu `sample-10BT` and exports it as an
+`llm-infer` bundle.
 
-It covers the full base-model path: data preparation, tokenizer training, model
-code, training checks, checkpoint evaluation, reporting, and export to
-`llm-infer`.
+It covers the base-model path: data preparation, tokenizer training, model code,
+training checks, checkpoint evaluation, reporting, and export.
 
-The accepted base checkpoint comes from one run, `pretrain_214m_b200`, recorded in
-[`docs/status.md`](docs/status.md) and
-[`docs/run-cards/pretrain-214m-b200.md`](docs/run-cards/pretrain-214m-b200.md).
-Those docs, the locked config, fixed checkpoint eval, bits-per-byte reporting,
-acceptance report, export bundle, and telemetry plots are the evidence trail for
-the base checkpoint.
+The current base checkpoint comes from one accepted run, `pretrain_214m_b200`.
+Its [`run card`](docs/run-cards/pretrain-214m-b200.md), locked config, fixed
+checkpoint eval, bits-per-byte report, acceptance report, export bundle, and
+telemetry plots are the evidence trail.
 
-At 214M parameters, Esme keeps the full LLM lifecycle cheap enough to run end to
-end and small enough to debug. It still goes through real training, evaluation,
-export, post-training, and inference.
+At 214M parameters, Esme is small enough to debug and cheap enough to run end to
+end, while still exercising the real base-model lifecycle: train, evaluate,
+export, post-train, and serve.
 
 For the model and training design, read
-[`docs/architecture.md`](docs/architecture.md). Then run the local checks in
+[`docs/architecture.md`](docs/architecture.md), then run the local checks in
 [Quickstart](#quickstart).
 
 ## Current State
@@ -44,11 +42,14 @@ Telemetry from the `pretrain_214m_b200` run, plotted from the run's
 
 - Data tools for local text files and FineWeb-Edu streaming splits.
 - A byte-level BPE tokenizer contract with digit splitting.
+- Plain `torch` model and training code, with no `transformers`, `Trainer`, or
+  `accelerate` dependency.
 - Production model code in
   [`DenseBackbone`](src/esme_pretrain/modeling/backbone.py) and
-  `BackboneConfig`.
+  `BackboneConfig`: grouped-query attention, RoPE, RMSNorm, SwiGLU, QK-norm,
+  tied embeddings, and z-loss.
 - Training code with checkpoint/resume checks, fixed validation batches, local
-  metrics, and optional W&B logging.
+  metrics, optional W&B logging, mixed precision, and token-accurate resume.
 - Training entrypoints for the current 214M B200 shape, launched with an
   explicit `--approved` flag.
 - Post-training evaluation, bits-per-byte reporting, and `llm-infer` export.
