@@ -7,6 +7,7 @@ import pytest
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
 from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import (
+    PRETRAIN_CHECKPOINT_FORMAT,
     load_pretrain_checkpoint,
     save_pretrain_checkpoint,
 )
@@ -63,6 +64,36 @@ def test_optimizer_state_round_trips_for_resume(tmp_path: Path) -> None:
     fresh = torch.optim.AdamW(DenseBackbone(config).parameters(), lr=1e-3)
     fresh.load_state_dict(loaded.optimizer_state)
     assert fresh.state_dict()["param_groups"][0]["lr"] == pytest.approx(1e-3)
+
+
+def test_current_checkpoint_schema_loads_from_disk_payload(tmp_path: Path) -> None:
+    config = _small_config()
+    model = DenseBackbone(config)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    payload = {
+        "format_version": PRETRAIN_CHECKPOINT_FORMAT,
+        "config": config.to_dict(),
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "step": 26015,
+        "metrics": {"loss": 2.5},
+        "data_offset_tokens": 544,
+        "rng_state": {"torch": torch.get_rng_state()},
+    }
+    path = tmp_path / "checkpoint.pt"
+    torch.save(payload, path)
+
+    loaded = load_pretrain_checkpoint(path)
+
+    assert loaded.step == 26015
+    assert loaded.config == config
+    assert loaded.data_offset_tokens == 544
+    assert loaded.rng_state
+    assert loaded.metrics["loss"] == pytest.approx(2.5)
+
+    input_ids = torch.randint(0, config.vocab_size, (2, 16))
+    with torch.no_grad():
+        assert torch.allclose(model(input_ids), loaded.model(input_ids), atol=1e-6)
 
 
 def test_missing_checkpoint_raises(tmp_path: Path) -> None:
