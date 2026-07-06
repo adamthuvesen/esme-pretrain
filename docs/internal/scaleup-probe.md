@@ -1,8 +1,8 @@
 # Scale-Up Probe Notes
 
-These notes record the throughput and sizing probes that informed the current
-214M B200 pretrain configuration. They are retained for reproducibility; the
-current run card is [`docs/run-cards/pretrain-214m-b200.md`](../run-cards/pretrain-214m-b200.md).
+These notes record the throughput and sizing probes behind the 214M B200
+pretrain config. The current run card is
+[`docs/run-cards/pretrain-214m-b200.md`](../run-cards/pretrain-214m-b200.md).
 
 ## Current Use
 
@@ -23,8 +23,8 @@ current run card is [`docs/run-cards/pretrain-214m-b200.md`](../run-cards/pretra
 
 ## Reproducibility
 
-Use the current dry run to validate the launch surface without downloading data or
-starting paid work:
+Use the dry run to check the launch surface without downloading data or starting
+paid work:
 
 ```bash
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json

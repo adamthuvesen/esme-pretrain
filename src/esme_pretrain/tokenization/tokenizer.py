@@ -53,11 +53,11 @@ class CharTokenizer:
         token_to_id = self.token_to_id
         unknown = sorted({token for token in text if token not in token_to_id})
         if unknown:
-            raise ValueError(f"text contains tokens outside the pilot vocabulary: {unknown!r}")
+            raise ValueError(f"text contains tokens outside the character vocabulary: {unknown!r}")
         return [token_to_id[token] for token in text]
 
     def decode(self, token_ids: list[int]) -> str:
-        return _decode_token_ids(self.id_to_token, token_ids, "pilot")
+        return _decode_token_ids(self.id_to_token, token_ids, "character")
 
     def to_dict(self) -> dict[str, list[str]]:
         return {"id_to_token": list(self.id_to_token)}

@@ -29,7 +29,7 @@ def test_no_command_defaults_to_status(capsys) -> None:
     assert "state: 214M B200 pretrain accepted" in capsys.readouterr().out
 
 
-def test_doctor_passes_for_repo_scaffold() -> None:
+def test_doctor_passes_for_repo() -> None:
     ok, checks = run_doctor(REPO_ROOT)
 
     assert ok
@@ -59,12 +59,12 @@ def test_doctor_accepts_configured_origin(monkeypatch: pytest.MonkeyPatch) -> No
     assert next(check for check in configured_checks if check.name == "git remote").ok
 
 
-def test_pilot_fixture_is_committed_text() -> None:
-    corpus = REPO_ROOT / "tests" / "fixtures" / "pilot_corpus.txt"
+def test_local_fixture_is_committed_text() -> None:
+    corpus = REPO_ROOT / "tests" / "fixtures" / "local_corpus.txt"
     text = corpus.read_text(encoding="utf-8")
 
     assert text.count("\n") >= 2
-    assert "real data" in text
+    assert "streamed data" in text
 
 
 def test_data_report_cli_emits_json(tmp_path, capsys) -> None:
@@ -140,7 +140,7 @@ def test_data_report_cli_returns_error_for_missing_input(tmp_path, capsys) -> No
 
 def test_tokenizer_lab_cli_emits_json_with_comparisons(tmp_path, capsys) -> None:
     corpus = tmp_path / "corpus.txt"
-    corpus.write_text("the tiny tokenizer lab repeats tiny text\n" * 12, encoding="utf-8")
+    corpus.write_text("the small tokenizer lab repeats small text\n" * 12, encoding="utf-8")
 
     exit_code = main(
         [

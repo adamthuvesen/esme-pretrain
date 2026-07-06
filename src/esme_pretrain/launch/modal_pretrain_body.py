@@ -149,7 +149,7 @@ def launch(argv: list[str] | None = None, *, run_pretrain_launch: Any | None = N
 def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
     """No-spend rehearsal: validate launch config and write the required artifact shape.
 
-    This deliberately uses synthetic token ids and a tiny CPU model so it never touches
+    This deliberately uses synthetic token ids and a small CPU model so it never touches
     FineWeb-Edu, Modal, W&B, or paid hardware. The real full run path is
     ``run_pretrain_launch_body``.
     """
@@ -158,8 +158,8 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
         shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True)
 
-    tiny_model = BackboneConfig(
-        name="pretrain-dress-tiny",
+    rehearsal_model = BackboneConfig(
+        name="pretrain-dress-rehearsal",
         vocab_size=256,
         context_length=16,
         embedding_dim=64,
@@ -169,19 +169,19 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
         z_loss_weight=0.0,
     )
     train_loader = StreamingBatchLoader(
-        synthetic_token_stream(tiny_model.vocab_size, seed=0),
+        synthetic_token_stream(rehearsal_model.vocab_size, seed=0),
         batch_size=4,
-        context_length=tiny_model.context_length,
+        context_length=rehearsal_model.context_length,
         device="cpu",
     )
     eval_loader = StreamingBatchLoader(
-        synthetic_token_stream(tiny_model.vocab_size, seed=1),
+        synthetic_token_stream(rehearsal_model.vocab_size, seed=1),
         batch_size=4,
-        context_length=tiny_model.context_length,
+        context_length=rehearsal_model.context_length,
         device="cpu",
     )
     train_config = PretrainConfig(
-        model=tiny_model,
+        model=rehearsal_model,
         max_steps=4,
         micro_batch_size=4,
         grad_accum_steps=2,
@@ -213,15 +213,15 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
     resume_result = run_pretrain(
         resumed_config,
         StreamingBatchLoader(
-            synthetic_token_stream(tiny_model.vocab_size, seed=0),
+            synthetic_token_stream(rehearsal_model.vocab_size, seed=0),
             batch_size=4,
-            context_length=tiny_model.context_length,
+            context_length=rehearsal_model.context_length,
             device="cpu",
         ),
         eval_loader=StreamingBatchLoader(
-            synthetic_token_stream(tiny_model.vocab_size, seed=1),
+            synthetic_token_stream(rehearsal_model.vocab_size, seed=1),
             batch_size=4,
-            context_length=tiny_model.context_length,
+            context_length=rehearsal_model.context_length,
             device="cpu",
         ),
         logger=resume_logger,

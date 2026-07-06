@@ -23,8 +23,8 @@ steps.
 ## Handoff
 
 The base checkpoint has evaluation, bits-per-byte reporting, a summary report,
-and an exported `llm-infer` bundle. The next model work is
-posttraining in `esme-posttrain`, not another pretraining launch.
+and an exported `llm-infer` bundle. The next model work is posttraining in
+`esme-posttrain`, not another pretraining launch.
 
 ## Safety
 

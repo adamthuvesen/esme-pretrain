@@ -7,16 +7,16 @@ It covers the full base-model path: data preparation, tokenizer training, model
 code, training checks, checkpoint evaluation, reporting, and export to
 `llm-infer`.
 
-The base checkpoint comes from one run, `pretrain_214m_b200`, recorded in
+The accepted base checkpoint comes from one run, `pretrain_214m_b200`, recorded in
 [`docs/status.md`](docs/status.md) and
 [`docs/run-cards/pretrain-214m-b200.md`](docs/run-cards/pretrain-214m-b200.md).
 Those docs, the locked config, fixed checkpoint eval, bits-per-byte reporting,
 acceptance report, export bundle, and telemetry plots are the evidence trail for
 the base checkpoint.
 
-Esme-214M is deliberately small. That keeps the full LLM lifecycle cheap and
-fast to build and its failures easy to diagnose, while still going through real
-training, evaluation, export, post-training, and inference.
+At 214M parameters, Esme keeps the full LLM lifecycle cheap enough to run end to
+end and small enough to debug. It still goes through real training, evaluation,
+export, post-training, and inference.
 
 For the model and training design, read
 [`docs/architecture.md`](docs/architecture.md). Then run the local checks in
@@ -25,7 +25,7 @@ For the model and training design, read
 ## Current State
 
 `Esme-214M-Base` is the current base checkpoint: 213,960,192 parameters trained
-on a nominal `10B`-token budget — `10,229,514,240` tokens over `26,015`
+on a nominal `10B`-token budget: `10,229,514,240` tokens over `26,015`
 optimizer steps.
 
 The base model is ready for downstream work. The next step is post-training in
@@ -87,8 +87,8 @@ uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json
 ```
 
 That command checks the pinned config, dataset revision, split rule, GPU profile,
-token budget, artifact manifest, and Modal command. It does not download
-FineWeb-Edu data or start training.
+token budget, artifact manifest, and Modal command. It does not download data or
+start training.
 
 ## Common Commands
 
@@ -117,9 +117,9 @@ uv run esme-pretrain export \
 
 ## Full Pretraining
 
-A full run streams FineWeb-Edu and trains on rented GPUs via Modal, so the
-entrypoint only launches with an explicit `--approved` flag. Use a detached
-Modal launch so a local disconnect does not stop training.
+A full run streams FineWeb-Edu and trains on rented GPUs via Modal. The
+entrypoint only launches with an explicit `--approved` flag. Use a detached Modal
+launch so a local disconnect does not stop training.
 
 B200 was picked because measurements on H100, H200, and B200 showed it had the
 lowest cost per token for this run.

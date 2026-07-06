@@ -68,7 +68,7 @@ def test_budget_enforcement_reports_deterministic_truncation(tmp_path) -> None:
 
 
 def test_input_too_small_to_pack_fails_loudly(tmp_path) -> None:
-    corpus = tmp_path / "tiny.txt"
+    corpus = tmp_path / "small.txt"
     corpus.write_text("abc", encoding="utf-8")
 
     with pytest.raises(ValueError, match="need more than 8 to pack"):

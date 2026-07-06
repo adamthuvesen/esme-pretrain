@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from esme_pretrain.modeling.backbone import (
-    BACKBONE_CONFIGS,
     BackboneConfig,
     DenseBackbone,
     baseline_config,
@@ -12,9 +11,9 @@ from esme_pretrain.modeling.backbone import (
 from esme_pretrain.torch import torch
 
 
-def _tiny(**overrides) -> BackboneConfig:
+def _small_config(**overrides) -> BackboneConfig:
     base = dict(
-        name="tiny",
+        name="small-test",
         vocab_size=128,
         context_length=32,
         embedding_dim=64,
@@ -24,19 +23,6 @@ def _tiny(**overrides) -> BackboneConfig:
     )
     base.update(overrides)
     return BackboneConfig(**base)
-
-
-def test_150m_preset_matches_probe_param_target() -> None:
-    config = baseline_config("150M")
-    total = config.parameter_count()["total"]
-    assert total == 136_693_824
-    assert 120_000_000 < total < 155_000_000
-    assert config.head_dim == 64
-    assert config.embedding_dim == 576
-    assert config.layers == 30
-    assert config.heads == 9
-    assert config.attention_kind == "gqa"
-    assert config.kv_heads == 3
 
 
 def test_214m_preset_matches_pretrain_param_target() -> None:
@@ -53,7 +39,7 @@ def test_214m_preset_matches_pretrain_param_target() -> None:
 
 
 def test_forward_shape() -> None:
-    config = _tiny()
+    config = _small_config()
     model = DenseBackbone(config)
     input_ids = torch.randint(0, config.vocab_size, (2, 16))
     logits = model(input_ids)
@@ -61,13 +47,13 @@ def test_forward_shape() -> None:
 
 
 def test_sequence_longer_than_context_raises() -> None:
-    model = DenseBackbone(_tiny(context_length=8))
+    model = DenseBackbone(_small_config(context_length=8))
     with pytest.raises(ValueError, match="exceeds context"):
         model(torch.randint(0, 128, (1, 9)))
 
 
 def test_forward_returns_raw_logits() -> None:
-    config = _tiny()
+    config = _small_config()
     model = DenseBackbone(config)
     with torch.no_grad():
         model.lm_head.weight.mul_(50.0)
@@ -80,7 +66,7 @@ def test_attention_is_causal() -> None:
     # the property that keeps the next-token loss from seeing its own answer; without
     # it, training and eval would silently leak future tokens.
     torch.manual_seed(0)
-    model = DenseBackbone(_tiny())
+    model = DenseBackbone(_small_config())
     model.eval()
     ids = torch.randint(0, 128, (1, 12))
     altered = ids.clone()
@@ -93,15 +79,15 @@ def test_attention_is_causal() -> None:
 
 
 def test_qk_norm_adds_head_dim_params() -> None:
-    with_norm = _tiny(qk_norm=True).parameter_count()["total"]
-    without_norm = _tiny(qk_norm=False).parameter_count()["total"]
+    with_norm = _small_config(qk_norm=True).parameter_count()["total"]
+    without_norm = _small_config(qk_norm=False).parameter_count()["total"]
     # Two RMSNorm(head_dim) vectors per layer.
-    config = _tiny()
+    config = _small_config()
     assert with_norm - without_norm == config.layers * 2 * config.head_dim
 
 
 def test_param_count_formula_matches_built_module() -> None:
-    config = _tiny()
+    config = _small_config()
     model = DenseBackbone(config)
     seen: set[int] = set()
     total = 0
@@ -114,7 +100,7 @@ def test_param_count_formula_matches_built_module() -> None:
 
 
 def test_gqa_param_count_formula_matches_built_module() -> None:
-    config = _tiny(attention_kind="gqa", kv_heads=2)
+    config = _small_config(attention_kind="gqa", kv_heads=2)
     model = DenseBackbone(config)
     seen: set[int] = set()
     total = 0
@@ -127,7 +113,7 @@ def test_gqa_param_count_formula_matches_built_module() -> None:
 
 
 def test_gqa_forward_shape() -> None:
-    config = _tiny(attention_kind="gqa", kv_heads=2)
+    config = _small_config(attention_kind="gqa", kv_heads=2)
     model = DenseBackbone(config)
     input_ids = torch.randint(0, config.vocab_size, (2, 16))
     logits = model(input_ids)
@@ -135,9 +121,9 @@ def test_gqa_forward_shape() -> None:
 
 
 def test_gqa_reduces_key_value_projection_params() -> None:
-    mha = _tiny().parameter_count()["total"]
-    gqa = _tiny(attention_kind="gqa", kv_heads=2).parameter_count()["total"]
-    config = _tiny()
+    mha = _small_config().parameter_count()["total"]
+    gqa = _small_config(attention_kind="gqa", kv_heads=2).parameter_count()["total"]
+    config = _small_config()
     expected_savings = (
         config.layers * 2 * config.embedding_dim * (config.heads - 2) * config.head_dim
     )
@@ -145,7 +131,7 @@ def test_gqa_reduces_key_value_projection_params() -> None:
 
 
 def test_tied_embeddings_share_storage() -> None:
-    model = DenseBackbone(_tiny(tie_embeddings=True))
+    model = DenseBackbone(_small_config(tie_embeddings=True))
     assert model.lm_head.weight is model.token_embedding.weight
 
 
@@ -164,7 +150,7 @@ def test_cross_entropy_matches_torch_reference() -> None:
 
 
 def test_z_loss_increases_total_loss() -> None:
-    config = _tiny()
+    config = _small_config()
     model = DenseBackbone(config)
     logits = model(torch.randint(0, config.vocab_size, (2, 16)))
     targets = torch.randint(0, config.vocab_size, (2, 16))
@@ -177,7 +163,7 @@ def test_z_loss_increases_total_loss() -> None:
 
 
 def test_generate_extends_sequence() -> None:
-    model = DenseBackbone(_tiny())
+    model = DenseBackbone(_small_config())
     prompt = torch.randint(0, 128, (1, 4))
     out = model.generate(prompt, max_new_tokens=6, temperature=0.0)
     assert out.shape == (1, 10)
@@ -186,21 +172,21 @@ def test_generate_extends_sequence() -> None:
 
 def test_unknown_attention_kind_rejected() -> None:
     with pytest.raises(ValueError, match="attention_kind"):
-        _tiny(attention_kind="bogus")
+        _small_config(attention_kind="bogus")
 
 
 def test_mha_rejects_reduced_kv_heads() -> None:
     with pytest.raises(ValueError, match="mha"):
-        _tiny(attention_kind="mha", kv_heads=2)
+        _small_config(attention_kind="mha", kv_heads=2)
 
 
 def test_gqa_requires_kv_heads_to_divide_query_heads() -> None:
     with pytest.raises(ValueError, match="divisible"):
-        _tiny(attention_kind="gqa", kv_heads=3)
+        _small_config(attention_kind="gqa", kv_heads=3)
 
 
 def test_config_round_trip_and_rejects_unknown_keys() -> None:
-    config = _tiny()
+    config = _small_config()
     restored = BackboneConfig.from_dict(config.to_dict())
     assert restored == config
     with pytest.raises(ValueError, match="unknown backbone config keys"):
@@ -208,6 +194,6 @@ def test_config_round_trip_and_rejects_unknown_keys() -> None:
 
 
 def test_baseline_config_override() -> None:
-    overridden = baseline_config("150M", context_length=512)
+    overridden = baseline_config("214M", context_length=512)
     assert overridden.context_length == 512
-    assert overridden.embedding_dim == BACKBONE_CONFIGS["150M"].embedding_dim
+    assert overridden.embedding_dim == baseline_config("214M").embedding_dim

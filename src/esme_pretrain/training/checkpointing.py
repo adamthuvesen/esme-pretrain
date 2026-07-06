@@ -22,8 +22,7 @@ from typing import Any
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
 from esme_pretrain.torch import torch
 
-# v2 adds data_offset_tokens + rng_state for stream-faithful resume. The repo is
-# local-only with no persisted checkpoints to keep compatible, so this is a clean bump.
+# Current checkpoint schema: weights, optimizer, stream offset, and RNG state.
 PRETRAIN_CHECKPOINT_FORMAT = 2
 PRETRAIN_CHECKPOINT_REQUIRED_KEYS = {
     "data_offset_tokens",

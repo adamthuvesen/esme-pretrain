@@ -69,7 +69,7 @@ def run_doctor(
 
 
 def add_doctor_parser(subparsers: argparse._SubParsersAction) -> None:
-    doctor = subparsers.add_parser("doctor", help="Check local scaffold assumptions.")
+    doctor = subparsers.add_parser("doctor", help="Check local project assumptions.")
     doctor.add_argument(
         "--repo-root",
         default=".",

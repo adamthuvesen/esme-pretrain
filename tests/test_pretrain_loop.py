@@ -21,7 +21,7 @@ from esme_pretrain.training.runtime import cosine_lr, wsd_lr
 
 def _model() -> BackboneConfig:
     return BackboneConfig(
-        name="tiny",
+        name="small-test",
         vocab_size=128,
         context_length=16,
         embedding_dim=64,

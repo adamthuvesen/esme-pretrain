@@ -7,7 +7,7 @@ compute-optimal (20 tok/param) and an over-trained (100 tok/param) budget. Keeps
 the numbers in docs/internal/scaleup-probe.md reproducible.
 
     uv run python scripts/probe_projections.py \
-        --results runs/stage0-throughput-probe/probe-results.json
+        --results runs/throughput-probe/probe-results.json
 """
 
 from __future__ import annotations
