@@ -27,9 +27,7 @@ def resolve_device(device: str) -> torch.device:
     if resolved.type == "cuda":
         if not torch.cuda.is_available():
             raise TrainerError("cuda device requested but torch.cuda.is_available() is False")
-        # Modern, stable way to enable TF32 for fp32 matmuls (supersedes the older
-        # backends.cuda.matmul.allow_tf32 flag). Our matmuls run bf16 under autocast;
-        # this only affects any residual fp32 matmuls.
+        # Our matmuls run bf16 under autocast; this covers any residual fp32 matmuls.
         torch.set_float32_matmul_precision("high")
     return resolved
 

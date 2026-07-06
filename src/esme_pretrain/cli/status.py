@@ -9,7 +9,7 @@ from esme_pretrain.status import current_status
 
 
 def add_status_parser(subparsers: argparse._SubParsersAction) -> None:
-    status = subparsers.add_parser("status", help="Show current scaffold status.")
+    status = subparsers.add_parser("status", help="Show current project status.")
     status.add_argument("--json", action="store_true", help="Emit machine-readable status.")
     status.set_defaults(handler=handle_status)
 

@@ -132,7 +132,7 @@ Two locked choices on top of plain BPE:
 Guardrails the config requires: round-trip checks (`decode(encode(x)) == x`) and a
 coverage report, so the tokenizer can never silently mangle data.
 
-`tokenization/lab.py` is a comparison harness — it trains a tiny `DenseBackbone`
+`tokenization/lab.py` is a comparison harness — it trains a small `DenseBackbone`
 on each candidate tokenizer and reports loss, so the choice is measured, not
 asserted.
 

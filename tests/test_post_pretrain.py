@@ -30,9 +30,9 @@ from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import save_pretrain_checkpoint
 
 
-def _tiny_config() -> BackboneConfig:
+def _small_config() -> BackboneConfig:
     return BackboneConfig(
-        name="tiny",
+        name="small-test",
         vocab_size=32,
         context_length=8,
         embedding_dim=16,
@@ -62,8 +62,8 @@ def _save_checkpoint(path: Path, config: BackboneConfig, *, step: int, offset: f
     save_pretrain_checkpoint(path, model=model, config=config, step=step)
 
 
-def test_two_tiny_checkpoints_evaluate_on_identical_token_batches(tmp_path: Path) -> None:
-    config = _tiny_config()
+def test_two_small_checkpoints_evaluate_on_identical_token_batches(tmp_path: Path) -> None:
+    config = _small_config()
     batches = _fixed_batches(config)
     first = tmp_path / "checkpoint-step1.pt"
     second = tmp_path / "checkpoint-step2.pt"
@@ -223,7 +223,7 @@ def test_acceptance_report_succeeds_with_fixture_artifacts(tmp_path: Path) -> No
 
 
 def test_export_round_trip_preserves_logits(tmp_path: Path, monkeypatch) -> None:
-    config = _tiny_config()
+    config = _small_config()
     checkpoint = tmp_path / "checkpoint.pt"
     tokenizer = tmp_path / "tokenizer.json"
     tokenizer.write_text('{"kind":"synthetic"}', encoding="utf-8")
@@ -282,7 +282,7 @@ def test_export_round_trip_preserves_logits(tmp_path: Path, monkeypatch) -> None
 
 
 def test_export_rejects_tokenizer_vocab_drift(tmp_path: Path, monkeypatch) -> None:
-    config = _tiny_config()
+    config = _small_config()
     checkpoint = tmp_path / "checkpoint.pt"
     tokenizer = tmp_path / "tokenizer.json"
     tokenizer.write_text('{"kind":"synthetic"}', encoding="utf-8")

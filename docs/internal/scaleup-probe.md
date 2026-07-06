@@ -1,8 +1,8 @@
 # Scale-Up Probe Notes
 
-These notes record the throughput and sizing probes that informed the current
-214M B200 pretrain configuration. They are retained for reproducibility; the
-current run card is [`docs/run-cards/pretrain-214m-b200.md`](../run-cards/pretrain-214m-b200.md).
+These notes record the throughput and sizing probes behind the current 214M B200
+pretrain configuration. The current run card is
+[`docs/run-cards/pretrain-214m-b200.md`](../run-cards/pretrain-214m-b200.md).
 
 ## Current Use
 

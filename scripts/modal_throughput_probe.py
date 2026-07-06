@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Throughput probe on a Modal GPU (A100 default).
+"""Throughput probe on a Modal GPU.
 
 Runs MHA backbone configs with RoPE/RMSNorm/SwiGLU, FlashAttention via SDPA,
 bf16, fused AdamW, and grad accumulation. It reports tokens/sec, MFU, and step
@@ -10,7 +10,7 @@ time without downloading data.
 
 The GPU is set by the PROBE_GPU env var (e.g. A100, A100-80GB, H100, L40S) so the
 cost/speed of different hardware can be compared. --compile adds a torch.compile
-150M pass. Each run writes runs/stage0-throughput-probe/probe-results-<gpu>.json.
+150M pass. Each run writes runs/throughput-probe/probe-results-<gpu>.json.
 
 This short probe blocks on .remote() and returns the result inline rather than
 spawning a detached run.
@@ -53,7 +53,7 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         repo_root_src=str(REPO_ROOT / "src"),
         modal_module=modal,
     )
-    app = modal.App("esme-pretrain-stage0-throughput-probe", image=image)
+    app = modal.App("esme-pretrain-throughput-probe", image=image)
 
     @app.function(gpu=PROBE_GPU, timeout=20 * 60)
     def run_probe(
@@ -113,7 +113,7 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         micro_batches = {"124M": 24, "150M": 16, "350M": 8}
         payload = run_probe.remote(micro_batches, measured_steps, compile)
 
-        output_dir = REPO_ROOT / "runs" / "stage0-throughput-probe"
+        output_dir = REPO_ROOT / "runs" / "throughput-probe"
         output_dir.mkdir(parents=True, exist_ok=True)
         gpu_slug = PROBE_GPU.lower().replace("-", "").replace(" ", "")
         out_path = output_dir / f"probe-results-{gpu_slug}.json"

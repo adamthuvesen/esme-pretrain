@@ -14,7 +14,7 @@ def test_probe_config_param_counts_land_near_targets() -> None:
 
 def test_forward_shape_and_causality_path() -> None:
     config = BackboneConfig(
-        name="tiny",
+        name="small-test",
         vocab_size=64,
         context_length=16,
         embedding_dim=32,
@@ -40,10 +40,10 @@ def test_flops_per_token_is_dominated_by_6n() -> None:
     assert flops > 6 * n
 
 
-def test_tiny_cpu_probe_runs_and_reports_tokens_per_second() -> None:
+def test_small_cpu_probe_runs_and_reports_tokens_per_second() -> None:
     config = ProbeConfig(
         model=BackboneConfig(
-            name="tiny",
+            name="small-test",
             vocab_size=128,
             context_length=32,
             embedding_dim=64,

@@ -45,7 +45,7 @@ def add_data_parsers(subparsers: argparse._SubParsersAction) -> None:
 
     tokenizer_lab = subparsers.add_parser(
         "tokenizer-lab",
-        help="Compare character and learned tokenizers on compression and tiny loss.",
+        help="Compare character and learned tokenizers on compression and small-model loss.",
     )
     tokenizer_lab.add_argument(
         "--input", required=True, type=Path, help="Local text file or directory."
@@ -61,7 +61,7 @@ def add_data_parsers(subparsers: argparse._SubParsersAction) -> None:
         required=True,
         help="Comma-separated learned tokenizer vocab sizes, such as 48,64.",
     )
-    tokenizer_lab.add_argument("--steps", required=True, type=int, help="Tiny CPU training steps.")
+    tokenizer_lab.add_argument("--steps", required=True, type=int, help="Small CPU training steps.")
     tokenizer_lab.add_argument("--json", action="store_true", help="Emit machine-readable result.")
     tokenizer_lab.set_defaults(handler=handle_tokenizer_lab)
 

@@ -10,7 +10,6 @@ def test_pipeline_preserves_status_spine() -> None:
         "transformer",
         "training loop",
         "eval",
-        "scaling curves",
         "checkpoint export",
     ]
     assert PIPELINE_STAGES[-1].milestone == "llm-infer bundle export"
@@ -22,7 +21,7 @@ def test_status_is_honest_about_current_state() -> None:
     assert "completed the accepted 10B FineWeb-Edu B200 pretrain" in status.summary
     assert "esme-posttrain" in status.next_milestone
     assert PIPELINE_STAGES[6].status == "accepted"
-    assert PIPELINE_STAGES[8].status == "accepted"
+    assert PIPELINE_STAGES[7].status == "accepted"
     assert status.run_card_path == "docs/run-cards/pretrain-214m-b200.md"
     assert "run card" in status.spend_policy
 

@@ -5,13 +5,13 @@ from esme_pretrain.tokenization.tokenizer import CharTokenizer, PairMergeTokeniz
 
 
 def test_char_tokenizer_round_trips_and_rejects_unknown_text() -> None:
-    tokenizer = CharTokenizer.from_text("pilot\n")
+    tokenizer = CharTokenizer.from_text("corpus\n")
 
-    encoded = tokenizer.encode("pilot")
+    encoded = tokenizer.encode("corpus")
 
-    assert tokenizer.decode(encoded) == "pilot"
-    with pytest.raises(ValueError, match="outside the pilot vocabulary"):
-        tokenizer.encode("pilot!")
+    assert tokenizer.decode(encoded) == "corpus"
+    with pytest.raises(ValueError, match="outside the character vocabulary"):
+        tokenizer.encode("corpus!")
 
 
 def test_pair_merge_tokenizer_round_trips_and_rejects_unknown_text() -> None:

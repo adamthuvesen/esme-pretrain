@@ -1,8 +1,7 @@
 """Trainable dense decoder for the accepted 214M pretrain run.
 
 Decoder-only GQA baseline with RoPE, RMSNorm, SwiGLU, QK-norm, and optional z-loss.
-See ``docs/architecture.md`` for design rationale. MLA and MTP hooks are reserved
-for future ablations.
+See ``docs/architecture.md`` for design rationale.
 """
 
 from __future__ import annotations
@@ -39,7 +38,7 @@ class BackboneConfig:
     tie_embeddings: bool = True
     qk_norm: bool = True
     z_loss_weight: float = 1e-4
-    attention_kind: str = "gqa"  # "mha" | "gqa" (baseline)
+    attention_kind: str = "gqa"  # "mha" | "gqa"
 
     def __post_init__(self) -> None:
         if self.embedding_dim % self.heads != 0:
@@ -217,7 +216,7 @@ class DecoderBlock(torch.nn.Module):
 
 
 class DenseBackbone(torch.nn.Module):
-    """The trainable decoder-only transformer for the accepted GQA baseline."""
+    """The trainable decoder-only transformer for the accepted 214M run."""
 
     def __init__(self, config: BackboneConfig) -> None:
         super().__init__()
@@ -345,17 +344,6 @@ def language_model_loss(
 BACKBONE_VOCAB_SIZE = 32768
 
 BACKBONE_CONFIGS: dict[str, BackboneConfig] = {
-    "150M": BackboneConfig(
-        name="150M",
-        vocab_size=BACKBONE_VOCAB_SIZE,
-        context_length=1024,
-        embedding_dim=576,
-        layers=30,
-        heads=9,
-        kv_heads=3,
-        feedforward_dim=1760,
-        attention_kind="gqa",
-    ),
     "214M": BackboneConfig(
         name="214M",
         vocab_size=BACKBONE_VOCAB_SIZE,
@@ -387,7 +375,7 @@ def _probe_config(**fields: Any) -> BackboneConfig:
     )
 
 
-# Throughput-probe shapes (MHA, no QK-norm). Names are distinct from BACKBONE_CONFIGS["150M"].
+# Throughput-probe shapes (MHA, no QK-norm), separate from the accepted 214M preset.
 PROBE_CONFIGS: dict[str, BackboneConfig] = {
     "124M": _probe_config(
         name="probe-124M",

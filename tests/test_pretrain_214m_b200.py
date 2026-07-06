@@ -13,7 +13,7 @@ from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS, load_pretrain_config
 CONFIG_214M_B200 = Path("configs/pretrain_214m_b200.json")
 
 
-def test_pretrain_214m_b200_config_validates_conventional_keystone_contract() -> None:
+def test_pretrain_214m_b200_config_validates_dense_keystone_contract() -> None:
     config = load_pretrain_config(CONFIG_214M_B200)
 
     assert config.payload["run_id"] == "pretrain_214m_b200"

@@ -92,7 +92,7 @@ class RunLogger:
 
         self.wandb_status = "offline" if mode == "offline" else (mode or "online")
         self.wandb_run_id = getattr(self.wandb_run, "id", None)
-        # `.url` is the current API (get_url() is deprecated); offline runs have none.
+        # Offline runs have no URL.
         self.wandb_run_url = getattr(self.wandb_run, "url", None)
         if self.wandb_run_id:
             (self.output_dir / "wandb-run-id.txt").write_text(
