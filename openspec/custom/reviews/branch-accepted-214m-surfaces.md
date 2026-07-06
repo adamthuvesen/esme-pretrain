@@ -8,7 +8,7 @@ Medium
 - None
 
 Low
-- **Checkpoint schema regression coverage was dropped** — `tests/test_pretrain_checkpoint.py:27` — The remaining checkpoint tests cover writer-to-loader round trips from the current `save_pretrain_checkpoint` path, but the loader still treats format `2` as the current on-disk schema (`src/esme_pretrain/training/checkpointing.py:26`). The branch removed the hand-built format-2 payload regression case, so future writer/loader schema drift could pass tests while breaking ignored accepted-run checkpoints used by eval, resume, or export. This is a coverage risk, not a current runtime failure.
+- **Checkpoint schema regression coverage was dropped**: `tests/test_pretrain_checkpoint.py:27`. The remaining checkpoint tests cover writer-to-loader round trips from the current `save_pretrain_checkpoint` path, but the loader still treats format `2` as the current on-disk schema (`src/esme_pretrain/training/checkpointing.py:26`). The branch removed the hand-built format-2 payload regression case, so future writer/loader schema drift could pass tests while breaking ignored accepted-run checkpoints used by eval, resume, or export. This is a coverage risk, not a current runtime failure.
 
 Areas Reviewed & Found Clean
 - Branch scope: reviewed `main...HEAD` across 25 changed paths; changes are mostly terminology cleanup and accepted-214M surface pruning.

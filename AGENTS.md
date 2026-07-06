@@ -1,16 +1,17 @@
-# esme-pretrain — Agent Instructions
+# esme-pretrain - Agent Instructions
 
-`esme-pretrain` is local-only unless Adam explicitly changes that. It owns base-model pretraining from raw text through checkpoint eval and export.
+`esme-pretrain` is local-only unless Adam explicitly changes that. It owns
+base-model pretraining from raw text through checkpoint eval and export.
 
 ## Read First
 
-| Work type                                        | Read                                          |
-| ------------------------------------------------ | --------------------------------------------- |
-| Current state, accepted run, next step           | `docs/status.md`                              |
-| Model, data, training, eval, export design       | `docs/architecture.md`                        |
-| 214M B200 config, budget, artifacts, abort rules | `docs/run-cards/pretrain-214m-b200.md`        |
-| GPU selection and Modal safety                   | `docs/internal/pretrain-214m-b200-hardware-measurements.md` |
-| CLI surface and quick commands                   | `README.md`                                   |
+| Work type | Read |
+| --- | --- |
+| Current state, accepted run, next step | `docs/status.md` |
+| Model, data, training, eval, export design | `docs/architecture.md` |
+| 214M B200 config, budget, artifacts, abort rules | `docs/run-cards/pretrain-214m-b200.md` |
+| GPU selection and Modal safety | `docs/internal/pretrain-214m-b200-hardware-measurements.md` |
+| CLI surface and quick commands | `README.md` |
 
 If docs and code disagree, fix the stale doc in the same change.
 
@@ -24,7 +25,8 @@ If docs and code disagree, fix the stale doc in the same change.
 
 ## Spend And Data
 
-- No FineWeb-Edu, ClimbMix, Modal, GPU, W&B write, or paid API work without an explicit run card and chat approval.
+- No FineWeb-Edu, ClimbMix, Modal, GPU, W&B write, or paid API work without an
+  explicit run card and chat approval.
 - Full pretrain launch requires the exact command, hardware, cost cap, and `--approved` flag.
 - Use detached Modal launch for long paid runs; local laptop disconnects must not kill training.
 - Keep run outputs, checkpoints, exports, W&B state, `.env*`, and raw/processed data out of git.

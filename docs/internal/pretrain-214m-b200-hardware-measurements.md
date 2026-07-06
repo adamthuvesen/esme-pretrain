@@ -27,10 +27,10 @@ Actual measured setup spend was `$0.8583`.
 - Selected B200 projection is `9.77h`, under the timeout.
 - Checkpoint/resume remains on the Modal Volume. The full run writes periodic
   checkpoints and `_resume_checkpoint()` resumes from the latest checkpoint.
-- Retries remain intentionally disabled in config (`allow_retries=false`)
-  because the selected measured B200 run fits inside one 24h function. If a
-  future selected profile exceeds 24h, the full launch should stay blocked
-  until chunked retry/resume orchestration is added.
+- Retries remain disabled in config (`allow_retries=false`) because the selected
+  measured B200 run fits inside one 24h function. If a future selected profile
+  exceeds 24h, the full launch should stay blocked until chunked retry/resume is
+  added.
 
 ## Evidence Paths
 

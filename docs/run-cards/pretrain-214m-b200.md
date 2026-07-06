@@ -15,9 +15,9 @@ artifact is `Esme-214M-Base`, the base model used by posttraining and serving.
 - **Tokenizer training budget:** `50,000,000` tokens.
 - **Hard read budget:** `10,329,514,240` tokens.
 
-No new FineWeb-Edu download, Modal job, GPU, W&B run, or paid compute is approved
-by this file or the checked-in config alone. The 10B base training run is complete;
-future reruns still require explicit approval.
+This file and the checked-in config do not approve a new FineWeb-Edu download,
+Modal job, GPU, W&B run, or paid compute. The 10B base training run is complete.
+Future reruns still require explicit approval.
 
 ## Model
 
@@ -66,14 +66,15 @@ under the run path.
 PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=24 uv run --with modal==1.5.0 modal run --detach scripts/modal_pretrain.py --config configs/pretrain_214m_b200.json --approved --json
 ```
 
-The script refuses the full Modal job unless `--approved` is present.
-The `modal run --detach` form keeps the ephemeral app alive if the local laptop
-disconnects. The launcher uses `run_pretrain_launch.spawn(...).get()` instead of a direct
-`.remote(...)` call so the function call follows Modal's long-job pattern.
+The script refuses the full Modal job unless `--approved` is present. The
+`modal run --detach` form keeps the ephemeral app alive if the local laptop
+disconnects. The launcher uses `run_pretrain_launch.spawn(...).get()` instead of
+a direct `.remote(...)` call so the function call follows Modal's long-job
+pattern.
 
 ## Required Artifacts
 
-The run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` is expected to contain:
+The run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` should contain:
 
 - `config.json`
 - `tokenizer.json`

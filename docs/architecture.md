@@ -1,6 +1,6 @@
 # Architecture
 
-`Esme-214M-Base` is a dense decoder-only transformer written from scratch in
+`Esme-214M-Base` is a dense decoder-only transformer defined in
 [`src/esme_pretrain/modeling/`](../src/esme_pretrain/modeling/). It is not a fork
 of a released model. The design uses current small-model defaults where they
 make the training run simpler, stabler, and easier to serve.
@@ -53,7 +53,7 @@ The code, tokenizer, weights, and training artifacts are all local to this repo.
 | --------------------------------------- | --------------------------------------------------------------------------------- |
 | Logit soft-capping                      | QK-norm plus z-loss cover the stability goal without adding another logit clamp.  |
 | MLA                                     | Useful for large-scale KV-cache efficiency; GQA is enough at 214M.                |
-| MoE                                     | A scale-out capacity technique; this model is intentionally dense.                |
+| MoE                                     | A scale-out capacity technique; this model stays dense.                           |
 | MTP                                     | A training/decoding-speed feature left out of the current base.                   |
 | Sliding-window / local-global attention | Long-context efficiency is unnecessary at context length `1024`.                  |
 | Muon / μP / sandwich-norm               | Avoided to keep the current base low-risk and easy to reproduce.                  |
