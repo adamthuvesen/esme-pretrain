@@ -21,12 +21,23 @@ dev = [
   "pytest>=8.2",
   "ruff>=0.5",
 ]
+baselines = [
+  "lm-eval==0.4.12",
+  "transformers>=4.55",
+  "tokenizers>=0.21",
+  "datasets>=3.0",
+  "accelerate>=1.0",
+  "zstandard>=0.23",
+]
 
 [project.scripts]
 esme-pretrain = "esme_pretrain.cli:main"
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q -m 'not network'"
+markers = [
+  "network: downloads real models or datasets; opt in with `pytest -m network`",
+]
 testpaths = ["tests"]
 
 [tool.ruff]

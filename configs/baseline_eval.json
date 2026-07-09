@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "device": "cpu",
+  "dtype": "float32",
+  "max_context": 1024,
+  "bpb_batch_size": 4,
+  "text_slices": {
+    "fineweb_edu_validation": {
+      "kind": "fineweb_edu_validation",
+      "pretrain_config": "configs/pretrain_214m_b200.json",
+      "document_budget": 500
+    },
+    "pile_test": {
+      "kind": "hf_dataset",
+      "source": "monology/pile-uncopyrighted",
+      "subset": null,
+      "split": "test",
+      "revision": "3be90335b66f24456a5d6659d9c8d208c0357119",
+      "text_field": "text",
+      "document_budget": 500
+    }
+  },
+  "models": {
+    "esme": {
+      "kind": "bundle",
+      "path": "exports/esme-214m-base"
+    },
+    "cerebras": {
+      "kind": "hf",
+      "repo": "cerebras/Cerebras-GPT-256M",
+      "revision": "abcf5974334502fa0d98811ea6d0cc81d4af9ecc"
+    },
+    "pythia": {
+      "kind": "hf",
+      "repo": "EleutherAI/pythia-160m",
+      "revision": "50f5173d932e8e61f858120bcb800b97af589f46"
+    }
+  },
+  "downstream": {
+    "harness": "lm-eval",
+    "version": "0.4.12",
+    "tasks": [
+      "lambada_openai",
+      "hellaswag",
+      "piqa",
+      "winogrande",
+      "arc_easy",
+      "arc_challenge",
+      "openbookqa"
+    ],
+    "num_fewshot": 0,
+    "batch_size": 1
+  },
+  "gate": {
+    "model": "cerebras",
+    "published": {
+      "lambada_openai": 0.293,
+      "hellaswag": 0.274,
+      "piqa": 0.613,
+      "winogrande": 0.511,
+      "arc_easy": 0.41,
+      "arc_challenge": 0.17,
+      "openbookqa": 0.158
+    },
+    "published_average": 0.347,
+    "per_task_tolerance": 0.01
+  },
+  "tolerances": {
+    "bpb": 1e-06,
+    "accuracy": 0.0
+  }
+}
