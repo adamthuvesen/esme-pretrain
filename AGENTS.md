@@ -1,6 +1,6 @@
 # esme-pretrain - Agent Instructions
 
-`esme-pretrain` is local-only unless Adam explicitly changes that. It owns
+`esme-pretrain` is public at `github.com/adamthuvesen/esme-pretrain`. It owns
 base-model pretraining from raw text through checkpoint eval and export.
 
 ## Read First
@@ -10,7 +10,7 @@ base-model pretraining from raw text through checkpoint eval and export.
 | Current state, accepted run, next step | `docs/status.md` |
 | Model, data, training, eval, export design | `docs/architecture.md` |
 | 214M B200 config, budget, artifacts, abort rules | `docs/run-cards/pretrain-214m-b200.md` |
-| GPU selection and Modal safety | `docs/internal/pretrain-214m-b200-hardware-measurements.md` |
+| GPU selection and Modal safety | `docs/internal/pretrain-214m-b200-hardware-measurements.md` (local, untracked) |
 | CLI surface and quick commands | `README.md` |
 
 If docs and code disagree, fix the stale doc in the same change.
@@ -18,7 +18,7 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Workflow
 
 - Work from the repo root unless Adam explicitly asks for an isolated worktree.
-- No remote is configured by default. Do not add one, push, or open a PR without explicit approval.
+- Do not push or open a PR without explicit approval.
 - Commit accepted local work directly to `main`; keep commits small and conventional.
 - Before committing, run the checks that match the change and leave `git status --short` clean except ignored runtime files.
 - Use `uv run ...` for project commands.
