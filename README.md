@@ -116,7 +116,22 @@ uv run esme-pretrain base-acceptance-report \
 uv run esme-pretrain export \
   --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
   --format llm-infer --output exports/pretrain-214m-b200 --json
+
+# Compare the exported bundle against public baselines (needs the baselines extra)
+uv run --extra baselines esme-pretrain baseline-gate \
+  --config configs/baseline_eval.json --output out/gate.json --json
+uv run --extra baselines esme-pretrain baseline-eval \
+  --config configs/baseline_eval.json --model esme --gate out/gate.json \
+  --output out/esme.json --json
+uv run esme-pretrain baseline-compare \
+  --result out/esme.json --result out/cerebras.json --result out/pythia.json \
+  --output out/comparison.md
 ```
+
+The baseline comparison scores `Esme-214M-Base` against pinned public base
+models (Cerebras-GPT-256M, Pythia-160M) on bits-per-byte over shared text and
+0-shot lm-eval tasks. Esme results only exist after `baseline-gate` reproduces
+Cerebras's published numbers, which proves the harness before it grades Esme.
 
 ## Full Pretraining
 
