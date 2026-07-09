@@ -173,13 +173,29 @@ def load_slice_texts(slice_cfg: FinewebValidationSlice | HFDatasetSlice) -> list
 
 def _hf_dataset_text_stream(slice_cfg: HFDatasetSlice):
     datasets = _import_baseline_dependency("datasets")
-    stream = datasets.load_dataset(
-        slice_cfg.source,
-        name=slice_cfg.subset,
-        split=slice_cfg.split,
-        revision=slice_cfg.revision,
-        streaming=True,
-    )
+    try:
+        stream = datasets.load_dataset(
+            slice_cfg.source,
+            name=slice_cfg.subset,
+            split=slice_cfg.split,
+            revision=slice_cfg.revision,
+            streaming=True,
+        )
+    except ValueError as error:
+        if "Bad split" not in str(error):
+            raise
+        # Some mirrors (e.g. monology/pile-uncopyrighted) keep split files at the
+        # repo root without declaring them, so datasets only exposes "train".
+        # Address the pinned split file directly; the revision still pins bytes.
+        split_url = (
+            f"hf://datasets/{slice_cfg.source}@{slice_cfg.revision}/{slice_cfg.split}.jsonl.zst"
+        )
+        stream = datasets.load_dataset(
+            "json",
+            data_files={slice_cfg.split: split_url},
+            split=slice_cfg.split,
+            streaming=True,
+        )
     for row in stream:
         if slice_cfg.text_field not in row:
             raise ValueError(

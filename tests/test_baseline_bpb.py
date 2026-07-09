@@ -234,3 +234,32 @@ def test_load_slice_texts_hf_dataset_rejects_missing_field(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="missing field 'text'"):
         load_slice_texts(slice_cfg)
+
+
+def test_load_slice_texts_hf_dataset_falls_back_to_split_file(monkeypatch) -> None:
+    slice_cfg = HFDatasetSlice(
+        name="pile_test",
+        source="monology/pile-uncopyrighted",
+        subset=None,
+        split="test",
+        revision="deadbeef",
+        text_field="text",
+        document_budget=1,
+    )
+    calls: list[dict] = []
+
+    def fake_load_dataset(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        if len(calls) == 1:
+            raise ValueError("Bad split: test. Available splits: ['train']")
+        return iter([{"text": "pile doc"}])
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(load_dataset=fake_load_dataset))
+
+    texts = load_slice_texts(slice_cfg)
+
+    assert texts == ["pile doc"]
+    assert calls[1]["args"] == ("json",)
+    assert calls[1]["kwargs"]["data_files"] == {
+        "test": "hf://datasets/monology/pile-uncopyrighted@deadbeef/test.jsonl.zst"
+    }
