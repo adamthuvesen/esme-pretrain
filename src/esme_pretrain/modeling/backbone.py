@@ -14,6 +14,29 @@ from esme_pretrain.torch import torch
 
 F = torch.nn.functional
 
+# Config keys removed after the accepted 214M run, with the only value they ever
+# held. Checkpoints saved before the cleanup still carry them; they load only if
+# the feature was disabled, so the weights are unaffected.
+REMOVED_DISABLED_CONFIG_KEYS: dict[str, Any] = {
+    "logit_soft_cap": 0.0,
+    "mtp_predict_tokens": 0,
+}
+
+
+def _drop_removed_disabled_keys(payload: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(payload)
+    for key, disabled_value in REMOVED_DISABLED_CONFIG_KEYS.items():
+        if key not in cleaned:
+            continue
+        if cleaned[key] != disabled_value:
+            raise ValueError(
+                f"legacy backbone config key {key!r} has non-disabled value "
+                f"{cleaned[key]!r}; this checkpoint used a feature the current "
+                "model code no longer implements"
+            )
+        del cleaned[key]
+    return cleaned
+
 
 @dataclass(frozen=True)
 class BackboneConfig:
@@ -72,6 +95,7 @@ class BackboneConfig:
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BackboneConfig:
+        payload = _drop_removed_disabled_keys(payload)
         fields = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
         unknown = set(payload) - fields
         if unknown:

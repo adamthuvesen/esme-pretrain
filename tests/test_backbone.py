@@ -197,3 +197,37 @@ def test_baseline_config_override() -> None:
     overridden = baseline_config("214M", context_length=512)
     assert overridden.context_length == 512
     assert overridden.embedding_dim == baseline_config("214M").embedding_dim
+
+
+def test_from_dict_drops_legacy_disabled_keys() -> None:
+    payload = BackboneConfig(
+        name="small",
+        vocab_size=32,
+        context_length=8,
+        embedding_dim=16,
+        layers=1,
+        heads=4,
+        feedforward_dim=32,
+    ).to_dict()
+    payload["logit_soft_cap"] = 0.0
+    payload["mtp_predict_tokens"] = 0
+
+    config = BackboneConfig.from_dict(payload)
+
+    assert "logit_soft_cap" not in config.to_dict()
+
+
+def test_from_dict_rejects_legacy_enabled_keys() -> None:
+    payload = BackboneConfig(
+        name="small",
+        vocab_size=32,
+        context_length=8,
+        embedding_dim=16,
+        layers=1,
+        heads=4,
+        feedforward_dim=32,
+    ).to_dict()
+    payload["logit_soft_cap"] = 30.0
+
+    with pytest.raises(ValueError, match="non-disabled value"):
+        BackboneConfig.from_dict(payload)
