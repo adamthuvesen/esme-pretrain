@@ -189,11 +189,19 @@ too. The acceptance criteria at this scale are qualitative (repetition,
 length, likelihood, and coherence proxies), on the written argument that
 benchmark suites meant for much larger models say little at 214M.
 
-The honest gap in this stage is chat_eval. The code for LLM-judged chat
-scoring exists, the policy for reporting it exists ("never the selector"),
-and it was never run. Chat quality rests on preference accuracy and read
-transcripts. Running the measurement you built is cheaper than explaining why
-you did not; it stays on the list.
+The honest gap in this stage was chat_eval, and the first version of this
+document misstated it. The eval had in fact run, on Modal on 2026-06-28,
+against the accepted SFT and DPO checkpoints; what never happened was
+retrieval. Its results sat on the Modal volume, unretrieved and uncommitted,
+so "it was never run" -- this document's original claim -- was really "it
+ran, and nobody went back for the numbers": the exact off-machine-artifact
+failure section 9 warns about, live in this document's own claims. The
+results were downloaded and pinned on 2026-07-10 in the
+[run card's Chat Eval Result section](https://github.com/adamthuvesen/esme-posttrain/blob/main/run_cards/esme-214m-chat-dpo.md#chat-eval-result-sft-vs-dpo):
+DPO reduces 3-gram repetition under both decoders with no degenerate length
+shift, and no LLM judge is configured, so the record carries generation
+metrics, not judge scores. The gap is closed; chat quality no longer rests
+on preference accuracy and read transcripts alone.
 
 ## 6. RLVR: reinforcement learning against a verifier
 
@@ -321,9 +329,12 @@ had to be bounded from its config. No posttrain stage recorded compute. MFU
 is reconstructed at plot time. Each is one line of code at run time and a
 derivation with a footnote afterward.
 
-If a fourth fits: run the measurements you build. chat_eval never ran, and
-the tokenizer lab's comparison table was never saved, so both exist as
-process without numbers.
+If a fourth fits: run the measurements you build, and go back for what they
+write. chat_eval turned out to have run after all -- its results sat
+unretrieved on a Modal volume while this document called it never-run (the
+correction is in section 5), and they are now pinned in the posttrain run
+card. The tokenizer lab's comparison table was never saved and stays lost.
+Both started as process without numbers; only one could be recovered.
 
 ## 10. How this document was written
 
