@@ -187,6 +187,7 @@ lowest cost per token for this run.
 
 ## Documentation
 
+- Full-lifecycle retrospective: [`docs/retrospective.md`](docs/retrospective.md)
 - Current state: [`docs/status.md`](docs/status.md)
 - Model and training design: [`docs/architecture.md`](docs/architecture.md)
 - Export bundle contract: [`docs/bundle-format.md`](docs/bundle-format.md)
