@@ -26,6 +26,16 @@ The base checkpoint has evaluation, bits-per-byte reporting, a summary report,
 and an exported `llm-infer` bundle. The next model work is posttraining in
 `esme-posttrain`, not another pretraining launch.
 
+## Baseline Comparison
+
+The baseline harness (2026-07-10 run, `configs/baseline_eval.json`) scored the
+exported base bundle against Cerebras-GPT-256M and Pythia-160M. The gate
+reproduced Cerebras's published 0-shot table within ±0.002 before any Esme
+score was recorded. Esme won 6 of 7 downstream tasks (average 0.408 vs 0.347
+and 0.365) and the FineWeb-Edu bits-per-byte slice; the Pile slice went to the
+Pile-trained baselines. Results table: README "How Good Is It?". Raw JSONs
+live under gitignored `out/`.
+
 ## Safety
 
 - Full pretraining remains approval-gated in code and docs.
