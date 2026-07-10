@@ -89,6 +89,29 @@ The run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` should contain:
 - `run-summary.json`
 - `scaleup-pretrain-report.md`
 
+## Accepted Result
+
+The run completed all `26,015` steps and stopped when the finite `sample-10BT`
+stream was exhausted. Accepted numbers, quoted here so they are citable from a
+fresh clone (run outputs are gitignored):
+
+- Train loss `10.5339` -> `2.7360` (min `2.5944`); training-time validation
+  loss `10.4642` -> `2.7426`; final grad norm `0.1215`.
+- Steady throughput `215,714` tokens/sec (peak `239,908`) on one B200; peak
+  GPU memory `40.69` GB. The full series are plotted in the committed
+  telemetry figures under `assets/`.
+- Post-run fixed-validation eval over `10,002,432` tokens: CE loss `2.7756`,
+  bits per byte `0.9001`, perplexity `16.05`. The independent baseline
+  harness measured `0.9012` bits per byte on its own FineWeb-Edu slice, an
+  agreement of about `0.001` across two code paths.
+
+Source artifacts: `run-summary.json`
+(sha256 `7ebf1b5aca34a89702348a7bd54637253d859692720aa869c37cd4fbcbc3571e`)
+and `base-eval.json`
+(sha256 `98f5479d502035006cceba11a5538dace1be6cebadd84c148cbb3ea67bd9b980`),
+both in the run directory above. The eval JSON records its device (`mps`) and
+the fixed-batch hash.
+
 ## Abort Rules
 
 - A new full pretrain command and runtime spend stop have not been explicitly approved.
