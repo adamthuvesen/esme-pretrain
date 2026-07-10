@@ -54,20 +54,21 @@ published 0-shot table; it matched every task within ±0.002.
 | winogrande | **0.531** | 0.513 | 0.513 |
 | **average** | **0.408** | 0.347 | 0.365 |
 
+Esme wins 6 of 7 downstream tasks against both baselines, including Pythia at
+roughly 22x the training compute. One caveat for reading the table: the task
+suite sits close to FineWeb-Edu's distribution (science and educational
+content), and the one loss, LAMBADA, tests fiction, which FineWeb-Edu barely
+covers. Neither comparison is matched compute: Esme has 2x Cerebras's tokens
+plus a more modern recipe, and Pythia has ~22x Esme's compute.
+
 Bits per byte on identical text (enforced by hash), each model using its own
-tokenizer:
+tokenizer, shows the expected home-field split: each model predicts the text
+closest to its own training data best.
 
 | Text slice | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
 | --- | --- | --- | --- |
 | FineWeb-Edu validation | **0.901** | 1.065 | 1.017 |
 | Pile test | 1.283 | 0.955 | **0.902** |
-
-Esme wins 6 of 7 downstream tasks against both baselines, including Pythia at
-roughly 22x the training compute. It also has the worst bits per byte on Pile
-text, and the task suite sits close to FineWeb-Edu's distribution. For its
-budget, Esme is a strong educational-domain base model; on general web text the
-baselines predict better. Neither comparison is matched compute: Esme has 2x
-Cerebras's tokens plus a more modern recipe, and Pythia has ~22x Esme's compute.
 
 Reproduce with the `baseline-gate` / `baseline-eval` / `baseline-compare`
 commands in [Common Commands](#common-commands); no Esme downstream score can
