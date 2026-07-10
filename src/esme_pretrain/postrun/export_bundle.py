@@ -10,7 +10,10 @@ from esme_pretrain.postrun.eval_checkpoints import file_sha256
 from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 
-EXPORT_FORMAT_VERSION = 1
+# One version number for the whole bundle contract: manifest schema_version, weights
+# format_version, and the _v1 suffix in the format name move together. The contract and
+# its compatibility policy live in docs/bundle-format.md.
+BUNDLE_SCHEMA_VERSION = 1
 CANONICAL_BUNDLE_FORMAT = "llm_pretrain_dense_v1"
 LLM_INFER_TARGET = "llm-infer"
 EXPORT_SPECIAL_TOKENS = ("<pad>", "<bos>", "<eos>", "<unk>")
@@ -39,7 +42,7 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
     config_payload = loaded.config.to_dict()
     llm_infer_config = _llm_infer_model_config(config_payload)
     weights_payload = {
-        "format_version": EXPORT_FORMAT_VERSION,
+        "format_version": BUNDLE_SCHEMA_VERSION,
         "format": CANONICAL_BUNDLE_FORMAT,
         "key_format": CANONICAL_BUNDLE_FORMAT,
         "metadata": {
@@ -65,7 +68,7 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
 
     inferred = _sibling_run_metadata(config.checkpoint_path)
     manifest = {
-        "schema_version": 1,
+        "schema_version": BUNDLE_SCHEMA_VERSION,
         "format": CANONICAL_BUNDLE_FORMAT,
         "target": config.export_format,
         "weights_format": CANONICAL_BUNDLE_FORMAT,

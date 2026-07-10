@@ -7,7 +7,7 @@ from typing import Any
 
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
 from esme_pretrain.postrun.eval_checkpoints import file_sha256
-from esme_pretrain.postrun.export_bundle import CANONICAL_BUNDLE_FORMAT
+from esme_pretrain.postrun.export_bundle import BUNDLE_SCHEMA_VERSION, CANONICAL_BUNDLE_FORMAT
 from esme_pretrain.torch import torch
 
 REQUIRED_BUNDLE_FILES = ("weights.pt", "config.json", "tokenizer.json", "manifest.json")
@@ -29,8 +29,8 @@ def load_bundle(bundle_dir: Path, *, device: str = "cpu") -> LoadedBundle:
     """Load an exported llm-infer bundle back into a DenseBackbone.
 
     Every integrity failure raises ValueError: missing files, manifest hash
-    mismatches, unknown bundle format, and config drift between config.json,
-    manifest.json, and weights.pt.
+    mismatches, unknown bundle format, unsupported schema version, and config
+    drift between config.json, manifest.json, and weights.pt.
     """
     if not bundle_dir.is_dir():
         raise ValueError(f"bundle directory does not exist: {bundle_dir}")
@@ -43,6 +43,11 @@ def load_bundle(bundle_dir: Path, *, device: str = "cpu") -> LoadedBundle:
         raise ValueError(
             f"bundle format is not {CANONICAL_BUNDLE_FORMAT}: {manifest.get('format')!r}"
         )
+    if manifest.get("schema_version") != BUNDLE_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported bundle schema_version: {manifest.get('schema_version')!r} "
+            f"(this loader supports {BUNDLE_SCHEMA_VERSION})"
+        )
     file_hashes = _verify_manifest_hashes(bundle_dir, manifest)
 
     config_payload = _read_json(bundle_dir / "config.json")
@@ -53,6 +58,11 @@ def load_bundle(bundle_dir: Path, *, device: str = "cpu") -> LoadedBundle:
     weights = torch.load(bundle_dir / "weights.pt", map_location="cpu", weights_only=False)
     if not isinstance(weights, dict) or "state_dict" not in weights:
         raise ValueError(f"weights.pt does not contain a state_dict: {bundle_dir}")
+    if weights.get("format_version") != BUNDLE_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported weights.pt format_version: {weights.get('format_version')!r} "
+            f"(this loader supports {BUNDLE_SCHEMA_VERSION})"
+        )
     if weights.get("model_config") != config_payload:
         raise ValueError("weights.pt model_config does not match config.json")
 
