@@ -31,6 +31,49 @@ optimizer steps.
 The base model is ready for downstream work. The next step is post-training in
 `esme-posttrain`, not another pretraining launch.
 
+## How Good Is It?
+
+`Esme-214M-Base` was scored against two pinned public base models with the
+repo's own harness: [Cerebras-GPT-256M](https://huggingface.co/cerebras/Cerebras-GPT-256M)
+(a similar training budget: 5.1B tokens vs Esme's 10.2B) and
+[Pythia-160M](https://huggingface.co/EleutherAI/pythia-160m) (~29x Esme's
+training tokens). All models ran deterministic fp32 forward passes on identical
+inputs. Before any Esme score was recorded, the harness had to reproduce
+Cerebras's published 0-shot table; it matched every task within ±0.002.
+
+0-shot accuracy via a pinned `lm-eval` (best per task in bold):
+
+| Task | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
+| --- | --- | --- | --- |
+| arc_challenge | **0.244** | 0.169 | 0.195 |
+| arc_easy | **0.581** | 0.410 | 0.436 |
+| hellaswag | **0.325** | 0.274 | 0.284 |
+| lambada_openai | 0.307 | 0.294 | **0.354** |
+| openbookqa | **0.206** | 0.158 | 0.150 |
+| piqa | **0.659** | 0.614 | 0.623 |
+| winogrande | **0.531** | 0.513 | 0.513 |
+| **average** | **0.408** | 0.347 | 0.365 |
+
+Bits per byte on identical text (enforced by hash), each model using its own
+tokenizer:
+
+| Text slice | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
+| --- | --- | --- | --- |
+| FineWeb-Edu validation | **0.901** | 1.065 | 1.017 |
+| Pile test | 1.283 | 0.955 | **0.902** |
+
+Read both tables together and the honest claim is: for its budget, Esme is a
+strong educational-domain base model, not a general-web one. It beats both
+baselines on 6 of 7 downstream tasks — including Pythia, which trained on ~22x
+the compute — but it also has the worst bits per byte on Pile text, and the
+task suite sits close to FineWeb-Edu's home distribution. None of these are
+matched-compute comparisons: Esme has 2x Cerebras's tokens plus a more modern
+recipe, and Pythia has ~22x Esme's compute.
+
+Reproduce with the `baseline-gate` / `baseline-eval` / `baseline-compare`
+commands in [Common Commands](#common-commands); no Esme downstream score can
+be produced until the gate passes.
+
 ## Training Telemetry
 
 Telemetry from the `pretrain_214m_b200` run, plotted from the run's
