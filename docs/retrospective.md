@@ -193,7 +193,7 @@ The honest gap in this stage was chat_eval, and the first version of this
 document misstated it. The eval had in fact run, on Modal on 2026-06-28,
 against the accepted SFT and DPO checkpoints; what never happened was
 retrieval. Its results sat on the Modal volume, unretrieved and uncommitted,
-so "it was never run" -- this document's original claim -- was really "it
+so "it was never run" (this document's original claim) was really "it
 ran, and nobody went back for the numbers": the exact off-machine-artifact
 failure section 9 warns about, live in this document's own claims. The
 results were downloaded and pinned on 2026-07-10 in the
@@ -330,7 +330,7 @@ is reconstructed at plot time. Each is one line of code at run time and a
 derivation with a footnote afterward.
 
 If a fourth fits: run the measurements you build, and go back for what they
-write. chat_eval turned out to have run after all -- its results sat
+write. chat_eval turned out to have run after all: its results sat
 unretrieved on a Modal volume while this document called it never-run (the
 correction is in section 5), and they are now pinned in the posttrain run
 card. The tokenizer lab's comparison table was never saved and stays lost.
