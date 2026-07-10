@@ -28,6 +28,9 @@ If docs and code disagree, fix the stale doc in the same change.
 
 - No FineWeb-Edu, ClimbMix, Modal, GPU, W&B write, or paid API work without an
   explicit run card and chat approval.
+- Any new corpus or data recipe needs a streaming data audit (per-stage
+  before/after counts, contamination check) and a pre-registered ablation plan
+  before its run card.
 - Full pretrain launch requires the exact command, hardware, cost cap, and `--approved` flag.
 - Use detached Modal launch for long paid runs; local laptop disconnects must not kill training.
 - Keep run outputs, checkpoints, exports, W&B state, `.env*`, and raw/processed data out of git.
