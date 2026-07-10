@@ -189,6 +189,7 @@ lowest cost per token for this run.
 
 - Current state: [`docs/status.md`](docs/status.md)
 - Model and training design: [`docs/architecture.md`](docs/architecture.md)
+- Export bundle contract: [`docs/bundle-format.md`](docs/bundle-format.md)
 
 ## Related Repositories
 

@@ -9,6 +9,7 @@ base-model pretraining from raw text through checkpoint eval and export.
 | --- | --- |
 | Current state, accepted run, next step | `docs/status.md` |
 | Model, data, training, eval, export design | `docs/architecture.md` |
+| Export bundle contract and version policy | `docs/bundle-format.md` |
 | 214M B200 config, budget, artifacts, abort rules | `docs/run-cards/pretrain-214m-b200.md` |
 | GPU selection and Modal safety | `docs/internal/pretrain-214m-b200-hardware-measurements.md` (local, untracked) |
 | CLI surface and quick commands | `README.md` |
