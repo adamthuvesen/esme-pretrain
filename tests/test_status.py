@@ -1,4 +1,4 @@
-from esme_pretrain.status import PIPELINE_STAGES, SIBLING_REPOS, current_status
+from esme_pretrain.status import PIPELINE_STAGES, current_status
 
 
 def test_pipeline_preserves_status_spine() -> None:
@@ -24,9 +24,3 @@ def test_status_is_honest_about_current_state() -> None:
     assert PIPELINE_STAGES[7].status == "accepted"
     assert status.run_card_path == "docs/run-cards/pretrain-214m-b200.md"
     assert "run card" in status.spend_policy
-
-
-def test_sibling_repo_story_is_connected() -> None:
-    assert SIBLING_REPOS["esme-posttrain"].startswith("SFT")
-    assert SIBLING_REPOS["llm-rlvr"].startswith("adapt")
-    assert "exported checkpoints" in SIBLING_REPOS["llm-infer"]

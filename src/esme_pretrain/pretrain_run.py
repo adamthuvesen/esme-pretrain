@@ -22,7 +22,6 @@ EXPECTED_ARTIFACTS: tuple[str, ...] = (
     "metrics.jsonl",
     "throughput.csv",
     "checkpoint.pt",
-    "samples.md",
     "environment.txt",
     "cost.json",
     "run-summary.json",
@@ -435,8 +434,6 @@ def _validate_monitoring(monitoring: dict[str, Any]) -> None:
             "eval_interval",
             "eval_batches",
             "checkpoint_interval",
-            "sample_interval",
-            "sample_new_tokens",
             "wandb_project",
         },
         "monitoring",
@@ -446,8 +443,6 @@ def _validate_monitoring(monitoring: dict[str, Any]) -> None:
         "eval_interval": 500,
         "eval_batches": 20,
         "checkpoint_interval": 500,
-        "sample_interval": 500,
-        "sample_new_tokens": 80,
         "wandb_project": "esme-pretrain",
     }
     _require_values(monitoring, expected, "monitoring")

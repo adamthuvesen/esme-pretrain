@@ -15,14 +15,13 @@ def add_status_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def handle_status(args: argparse.Namespace) -> int:
+    status = current_status()
     if args.json:
-        status = current_status()
         payload = asdict(status)
         payload["pipeline"] = [asdict(stage) for stage in status.pipeline]
         payload["version"] = __version__
         print(json.dumps(payload, indent=2))
     else:
-        status = current_status()
         print(f"esme-pretrain {__version__}")
         print(f"state: {status.state}")
         print(status.summary)

@@ -128,7 +128,6 @@ def contract_bundle(tmp_path: Path, monkeypatch) -> tuple[Path, BackboneConfig]:
             checkpoint_path=checkpoint,
             tokenizer_path=tokenizer,
             output_dir=bundle_dir,
-            export_format="llm-infer",
         )
     )
     return bundle_dir, config

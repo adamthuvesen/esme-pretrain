@@ -212,7 +212,6 @@ def test_acceptance_report_succeeds_with_fixture_artifacts(tmp_path: Path) -> No
         )
     )
 
-    assert payload["samples_present"] is True
     assert payload["fixed_eval"]["best_bits_per_byte"] == pytest.approx(6.79)
     assert payload["tokenizer_round_trip"]["all_passed"] is True
     assert (
@@ -241,7 +240,6 @@ def test_export_round_trip_preserves_logits(tmp_path: Path, monkeypatch) -> None
             checkpoint_path=checkpoint,
             tokenizer_path=tokenizer,
             output_dir=output_dir,
-            export_format="llm-infer",
         )
     )
     weights = torch.load(output_dir / "weights.pt", map_location="cpu", weights_only=False)
@@ -295,9 +293,32 @@ def test_export_rejects_tokenizer_vocab_drift(tmp_path: Path, monkeypatch) -> No
                 checkpoint_path=checkpoint,
                 tokenizer_path=tokenizer,
                 output_dir=tmp_path / "export",
-                export_format="llm-infer",
             )
         )
+
+
+def test_export_rejects_malformed_run_metadata_before_writing(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    config = _small_config()
+    checkpoint = run_dir / "checkpoint.pt"
+    tokenizer = run_dir / "tokenizer.json"
+    tokenizer.write_text('{"kind":"synthetic"}', encoding="utf-8")
+    (run_dir / "run-summary.json").write_text("not JSON", encoding="utf-8")
+    save_pretrain_checkpoint(checkpoint, model=DenseBackbone(config), config=config, step=9)
+    _install_fake_tokenizers(monkeypatch, tokenizer, vocab_size=config.vocab_size)
+    output_dir = tmp_path / "export"
+
+    with pytest.raises(ValueError, match="run metadata is not valid JSON"):
+        export_checkpoint(
+            ExportConfig(
+                checkpoint_path=checkpoint,
+                tokenizer_path=tokenizer,
+                output_dir=output_dir,
+            )
+        )
+
+    assert not output_dir.exists()
 
 
 def _install_fake_tokenizers(monkeypatch, tokenizer_path: Path, *, vocab_size: int) -> None:
@@ -333,7 +354,6 @@ def _write_required_run_artifacts(run_dir: Path) -> None:
         encoding="utf-8",
     )
     (run_dir / "checkpoint.pt").write_bytes(b"fixture-checkpoint")
-    (run_dir / "samples.md").write_text("## step 3\n\nprompt: 'abc'\n", encoding="utf-8")
     (run_dir / "environment.txt").write_text("python=3.11\n", encoding="utf-8")
     (run_dir / "scaleup-pretrain-report.md").write_text("# fixture\n", encoding="utf-8")
     (run_dir / "tokenizer-report.json").write_text(
@@ -350,6 +370,20 @@ def _write_required_run_artifacts(run_dir: Path) -> None:
         encoding="utf-8",
     )
     (run_dir / "run-summary.json").write_text(
-        json.dumps({"status": "pretrain_complete", "final_step": 3, "final_tokens": 96}),
+        json.dumps(
+            {
+                "start_step": 0,
+                "steps_completed": 3,
+                "train_loss_first": 3.0,
+                "train_loss_last": 2.5,
+                "train_loss_min": 2.5,
+                "val_loss_first": 2.8,
+                "val_loss_last": 2.6,
+                "grad_norm_last": 0.5,
+                "peak_memory_gb": 1.0,
+                "wandb_run_id": None,
+                "wandb_run_url": None,
+            }
+        ),
         encoding="utf-8",
     )

@@ -24,22 +24,20 @@ class ExportConfig:
     checkpoint_path: Path
     tokenizer_path: Path
     output_dir: Path
-    export_format: str = LLM_INFER_TARGET
 
 
 def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
-    if config.export_format != LLM_INFER_TARGET:
-        raise ValueError(f"--format must be {LLM_INFER_TARGET}")
     if not config.checkpoint_path.exists():
         raise ValueError(f"checkpoint does not exist: {config.checkpoint_path}")
     if not config.tokenizer_path.exists():
         raise ValueError(f"tokenizer does not exist: {config.tokenizer_path}")
 
     loaded = load_pretrain_checkpoint(config.checkpoint_path)
-    _validate_export_tokenizer(config.tokenizer_path, loaded.config.vocab_size)
+    _validate_export_tokenizer(config.tokenizer_path, loaded.model.config.vocab_size)
+    inferred = _sibling_run_metadata(config.checkpoint_path)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
-    config_payload = loaded.config.to_dict()
+    config_payload = loaded.model.config.to_dict()
     llm_infer_config = _llm_infer_model_config(config_payload)
     weights_payload = {
         "format_version": BUNDLE_SCHEMA_VERSION,
@@ -47,7 +45,7 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
         "key_format": CANONICAL_BUNDLE_FORMAT,
         "metadata": {
             "key_format": CANONICAL_BUNDLE_FORMAT,
-            "target": config.export_format,
+            "target": LLM_INFER_TARGET,
             "state_dict_key": "dense_backbone",
         },
         "state_dict_key": "dense_backbone",
@@ -66,11 +64,10 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
     tokenizer_out = config.output_dir / "tokenizer.json"
     shutil.copyfile(config.tokenizer_path, tokenizer_out)
 
-    inferred = _sibling_run_metadata(config.checkpoint_path)
     manifest = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "format": CANONICAL_BUNDLE_FORMAT,
-        "target": config.export_format,
+        "target": LLM_INFER_TARGET,
         "weights_format": CANONICAL_BUNDLE_FORMAT,
         "model_family": "DenseBackbone",
         "model": {"format": CANONICAL_BUNDLE_FORMAT, "family": "DenseBackbone"},
@@ -143,7 +140,6 @@ def _validate_export_tokenizer(tokenizer_path: Path, vocab_size: int) -> None:
 def _sibling_run_metadata(checkpoint_path: Path) -> dict[str, Any]:
     run_dir = checkpoint_path.parent
     metadata: dict[str, Any] = {}
-    skipped: list[str] = []
     for name in ("run-summary.json", "cost.json", "launch-status.json"):
         path = run_dir / name
         if not path.exists():
@@ -151,14 +147,10 @@ def _sibling_run_metadata(checkpoint_path: Path) -> dict[str, Any]:
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as error:
-            skipped.append(f"{name}: {error}")
-            continue
-        if isinstance(payload, dict):
-            metadata[name] = payload
-        else:
-            skipped.append(f"{name}: expected object, got {type(payload).__name__}")
-    if skipped:
-        metadata["_skipped_run_metadata"] = skipped
+            raise ValueError(f"run metadata is not valid JSON: {path}") from error
+        if not isinstance(payload, dict):
+            raise ValueError(f"run metadata must contain a JSON object: {path}")
+        metadata[name] = payload
     return metadata
 
 

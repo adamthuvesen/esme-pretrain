@@ -244,7 +244,7 @@ def evaluate_checkpoint(
 ) -> CheckpointEvalResult:
     start = time.perf_counter()
     loaded = load_pretrain_checkpoint(checkpoint_path, map_location=device)
-    if loaded.config != expected_config:
+    if loaded.model.config != expected_config:
         raise ValueError(f"checkpoint config does not match eval config: {checkpoint_path}")
 
     model = loaded.model.to(torch.device(device))

@@ -16,7 +16,7 @@ from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 from esme_pretrain.training.data_stream import Batch, StreamingBatchLoader, synthetic_token_stream
 from esme_pretrain.training.metrics import RunLogger, WandbSettings
 from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
-from esme_pretrain.training.runtime import cosine_lr, wsd_lr
+from esme_pretrain.training.runtime import wsd_lr
 
 
 def _model() -> BackboneConfig:
@@ -58,14 +58,6 @@ def _config(output_dir: Path, **overrides) -> PretrainConfig:
     return PretrainConfig(**base)
 
 
-def test_cosine_lr_warmup_then_decay() -> None:
-    kwargs = dict(warmup_steps=3, max_steps=10, max_lr=1.0, min_lr=0.1)
-    assert cosine_lr(0, **kwargs) < cosine_lr(1, **kwargs)  # warmup ramps up
-    assert cosine_lr(2, **kwargs) == 1.0  # peak at end of warmup
-    assert cosine_lr(2, **kwargs) > cosine_lr(6, **kwargs) > cosine_lr(9, **kwargs)  # decays
-    assert math.isclose(cosine_lr(10, **kwargs), 0.1)  # floors at min_lr
-
-
 def test_wsd_lr_warmup_stable_then_decays() -> None:
     kwargs = dict(warmup_steps=3, max_steps=10, max_lr=1.0, min_lr=0.1, decay_fraction=0.2)
     # decay_fraction 0.2 of 10 steps -> decay over the last 2 steps (decay_start=8).
@@ -87,9 +79,7 @@ def test_wsd_lr_with_zero_decay_holds_peak_until_the_end() -> None:
 
 
 def test_loop_runs_and_writes_durable_metrics(tmp_path: Path) -> None:
-    config = _config(
-        tmp_path, eval_interval=4, eval_batches=2, sample_interval=4, sample_new_tokens=3
-    )
+    config = _config(tmp_path, eval_interval=4, eval_batches=2)
     logger = RunLogger(tmp_path, WandbSettings(enabled=False))
     result = run_pretrain(config, _loader(1), eval_loader=_loader(2), logger=logger)
     logger.finish()
@@ -211,7 +201,6 @@ def test_periodic_checkpoint_cadence_uses_completed_steps(tmp_path: Path) -> Non
         checkpoint_interval=2,
         log_interval=1,
         eval_interval=0,
-        sample_interval=0,
     )
     logger = RunLogger(tmp_path, WandbSettings(enabled=False))
     run_pretrain(config, _loader(1), logger=logger)

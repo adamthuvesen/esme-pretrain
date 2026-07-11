@@ -27,10 +27,6 @@ class Batch:
     input_ids: torch.Tensor  # [batch, context_length]
     targets: torch.Tensor  # [batch, context_length]
 
-    @property
-    def token_count(self) -> int:
-        return int(self.input_ids.numel())
-
 
 def batch_token_windows(
     tokens: Iterable[int], *, window: int, batch_size: int

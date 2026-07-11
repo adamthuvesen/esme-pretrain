@@ -1,11 +1,9 @@
-"""Runtime plumbing for the training loop: seed, device, precision, LR schedules."""
+"""Runtime plumbing for the training loop: seed, device, precision, and WSD schedule."""
 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from contextlib import nullcontext
-from functools import partial
 from typing import Any
 
 from esme_pretrain.torch import torch
@@ -51,19 +49,6 @@ def autocast_context(device: torch.device, dtype: torch.dtype) -> Any:
     return nullcontext()
 
 
-def cosine_lr(
-    step: int, *, warmup_steps: int, max_steps: int, max_lr: float, min_lr: float
-) -> float:
-    """Linear warmup to ``max_lr``, then cosine decay to ``min_lr`` by ``max_steps``."""
-    if warmup_steps > 0 and step < warmup_steps:
-        return max_lr * (step + 1) / warmup_steps
-    if step >= max_steps:
-        return min_lr
-    progress = (step - warmup_steps) / max(1, max_steps - warmup_steps)
-    coefficient = 0.5 * (1.0 + math.cos(math.pi * progress))
-    return min_lr + coefficient * (max_lr - min_lr)
-
-
 def wsd_lr(
     step: int,
     *,
@@ -88,29 +73,3 @@ def wsd_lr(
     decay_progress = (step - decay_start) / decay_steps
     coefficient = 0.5 * (1.0 + math.cos(math.pi * decay_progress))
     return min_lr + coefficient * (max_lr - min_lr)
-
-
-def learning_rate_schedule(
-    *,
-    schedule: str,
-    warmup_steps: int,
-    max_steps: int,
-    max_lr: float,
-    min_lr: float,
-    decay_fraction: float,
-) -> Callable[[int], float]:
-    """Step -> absolute LR callable (this loop sets optimizer group LR directly)."""
-    if schedule == "cosine":
-        return partial(
-            cosine_lr, warmup_steps=warmup_steps, max_steps=max_steps, max_lr=max_lr, min_lr=min_lr
-        )
-    if schedule == "wsd":
-        return partial(
-            wsd_lr,
-            warmup_steps=warmup_steps,
-            max_steps=max_steps,
-            max_lr=max_lr,
-            min_lr=min_lr,
-            decay_fraction=decay_fraction,
-        )
-    raise TrainerError(f"lr_schedule must be 'cosine' or 'wsd', got {schedule!r}")

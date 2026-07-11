@@ -1,3 +1,0 @@
-Small models learn from small, honest corpora.
-Each line is plain text so the first tokenizer path has nowhere to hide.
-The local fixture proves local plumbing before streamed data appears.

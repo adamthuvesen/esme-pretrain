@@ -195,8 +195,6 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
         eval_interval=2,
         eval_batches=2,
         checkpoint_interval=2,
-        sample_interval=2,
-        sample_new_tokens=3,
         output_dir=output_dir,
     )
     logger = RunLogger(output_dir, WandbSettings(enabled=False))
@@ -316,7 +314,6 @@ def run_pretrain_launch_body(
         grad_accum_steps=training["grad_accum_steps"],
         learning_rate=config.payload["optimizer"]["learning_rate"],
         min_lr_ratio=config.payload["optimizer"]["min_lr_ratio"],
-        lr_schedule=config.payload["optimizer"]["lr_schedule"],
         decay_fraction=config.payload["optimizer"]["decay_fraction"],
         warmup_steps=config.payload["optimizer"]["warmup_steps"],
         weight_decay=config.payload["optimizer"]["weight_decay"],
@@ -330,8 +327,6 @@ def run_pretrain_launch_body(
         eval_interval=monitoring["eval_interval"],
         eval_batches=monitoring["eval_batches"],
         checkpoint_interval=monitoring["checkpoint_interval"],
-        sample_interval=monitoring["sample_interval"],
-        sample_new_tokens=monitoring["sample_new_tokens"],
         output_dir=output_dir,
         resume_from=_resume_checkpoint(output_dir),
     )

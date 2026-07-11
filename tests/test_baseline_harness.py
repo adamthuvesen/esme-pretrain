@@ -314,7 +314,6 @@ def test_run_baseline_eval_scores_bundle_end_to_end(monkeypatch, tmp_path: Path)
             checkpoint_path=checkpoint,
             tokenizer_path=tokenizer_path,
             output_dir=bundle_dir,
-            export_format="llm-infer",
         )
     )
 

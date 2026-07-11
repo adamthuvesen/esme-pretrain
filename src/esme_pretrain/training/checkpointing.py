@@ -92,7 +92,6 @@ def _as_cpu_byte_tensor(value: Any) -> torch.Tensor:
 @dataclass(frozen=True)
 class LoadedPretrainCheckpoint:
     model: DenseBackbone
-    config: BackboneConfig
     optimizer_state: dict[str, Any]
     step: int
     metrics: dict[str, Any]
@@ -163,7 +162,6 @@ def load_pretrain_checkpoint(
     model.eval()
     return LoadedPretrainCheckpoint(
         model=model,
-        config=config,
         optimizer_state=payload["optimizer_state"],
         step=int(payload["step"]),
         metrics=dict(payload["metrics"]),

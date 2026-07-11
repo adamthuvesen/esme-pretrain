@@ -85,7 +85,7 @@ Telemetry from the `pretrain_214m_b200` run, plotted from the run's
 
 ## What Is Here
 
-- Data tools for local text files and FineWeb-Edu streaming splits.
+- FineWeb-Edu streaming with a deterministic document split.
 - A byte-level BPE tokenizer contract with digit splitting.
 - Plain `torch` model and training code, with no `transformers`, `Trainer`, or
   `accelerate` dependency.
@@ -116,14 +116,6 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pytest
 uv run esme-pretrain status --json
-uv run esme-pretrain doctor
-```
-
-`doctor` expects no `origin` remote or one containing `adamthuvesen/esme-pretrain`
-by default. For a fork or mirror, pass the expected owner/repo substring:
-
-```bash
-uv run esme-pretrain doctor --expected-origin <owner/repo>
 ```
 
 Check the pretraining launch config without touching data or GPUs:
@@ -139,11 +131,6 @@ start training.
 ## Common Commands
 
 ```bash
-# Prepare a local text dataset into packed tokens
-uv run esme-pretrain prepare-data \
-  --input <text-file> --output-dir data/processed/<name> \
-  --context-length 1024 --token-budget <tokens> --json
-
 # Evaluate a checkpoint on the fixed validation batches
 uv run esme-pretrain eval-checkpoints \
   --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
