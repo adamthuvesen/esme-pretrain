@@ -123,7 +123,7 @@ class BackboneConfig:
         return 6.0 * n + 12.0 * self.layers * self.embedding_dim * ctx
 
 
-class CausalSelfAttention(torch.nn.Module):
+class GroupedQueryAttention(torch.nn.Module):
     """Causal grouped-query attention.
 
     The implementation repeats K/V heads before SDPA rather than relying on a
@@ -167,7 +167,7 @@ class DecoderBlock(torch.nn.Module):
     def __init__(self, config: BackboneConfig) -> None:
         super().__init__()
         self.attention_norm = RMSNorm(config.embedding_dim, config.rms_norm_eps)
-        self.attention = CausalSelfAttention(config)
+        self.attention = GroupedQueryAttention(config)
         self.feedforward_norm = RMSNorm(config.embedding_dim, config.rms_norm_eps)
         self.feedforward = SwiGLU(config.embedding_dim, config.feedforward_dim)
 

@@ -111,6 +111,17 @@ and `base-eval.json`
 both in the run directory above. The eval JSON records its device (`mps`) and
 the fixed-batch hash.
 
+Decoded qualitative samples can be produced from the accepted checkpoint
+without changing the accepted artifact set:
+
+```bash
+uv run esme-pretrain sample \
+  --checkpoint runs/pretrain-214m-b200/pretrain_214m_b200/checkpoint.pt \
+  --tokenizer runs/pretrain-214m-b200/pretrain_214m_b200/tokenizer.json \
+  --prompt "Once upon a time" --max-new-tokens 64 \
+  --output runs/pretrain-214m-b200/pretrain_214m_b200/samples.md --json
+```
+
 ## Abort Rules
 
 - A new full pretrain command and runtime spend stop have not been explicitly approved.

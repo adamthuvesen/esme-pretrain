@@ -26,6 +26,11 @@ from esme_pretrain.postrun.export_bundle import (
     ExportConfig,
     export_checkpoint,
 )
+from esme_pretrain.postrun.sample_checkpoint import (
+    SampleCheckpointConfig,
+    generate_completion,
+    sample_checkpoint,
+)
 from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import save_pretrain_checkpoint
 
@@ -60,6 +65,169 @@ def _save_checkpoint(path: Path, config: BackboneConfig, *, step: int, offset: f
         with torch.no_grad():
             model.token_embedding.weight.add_(offset)
     save_pretrain_checkpoint(path, model=model, config=config, step=step)
+
+
+class _SampleTokenizer:
+    def encode(self, text: str):
+        return SimpleNamespace(ids=[1, 2] if text == "Hello" else [1] * len(text))
+
+    def decode(self, ids: list[int]) -> str:
+        return "".join({0: "<eos>", 1: "H", 2: "i", 4: "!"}[token_id] for token_id in ids)
+
+    def token_to_id(self, token: str) -> int | None:
+        return 0 if token == "<eos>" else None
+
+    def get_vocab_size(self) -> int:
+        return 5
+
+
+class _SampleModel:
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(context_length=4, vocab_size=5)
+        self.calls = 0
+
+    def to(self, _device):
+        return self
+
+    def eval(self) -> None:
+        pass
+
+    def __call__(self, input_ids):
+        logits = torch.zeros((1, input_ids.shape[1], 5))
+        logits[:, -1, 4 if self.calls == 0 else 0] = 1
+        self.calls += 1
+        return logits
+
+
+def test_sample_checkpoint_writes_decoded_greedy_text(tmp_path: Path, monkeypatch) -> None:
+    from esme_pretrain.postrun import sample_checkpoint as sample_module
+
+    checkpoint = tmp_path / "checkpoint.pt"
+    tokenizer_path = tmp_path / "tokenizer.json"
+    checkpoint.touch()
+    tokenizer_path.touch()
+    model = _SampleModel()
+    monkeypatch.setattr(
+        sample_module,
+        "load_pretrain_checkpoint",
+        lambda *_args, **_kwargs: SimpleNamespace(model=model, step=12),
+    )
+    monkeypatch.setattr(sample_module, "load_tokenizer", lambda _path: _SampleTokenizer())
+    output = tmp_path / "samples.md"
+
+    payload = sample_checkpoint(
+        SampleCheckpointConfig(
+            checkpoint_path=checkpoint,
+            tokenizer_path=tokenizer_path,
+            output_path=output,
+            prompts=("Hello",),
+            max_new_tokens=4,
+        )
+    )
+
+    assert payload["decoding"] == "greedy"
+    assert payload["samples"] == [
+        {
+            "prompt": "Hello",
+            "continuation": "!<eos>",
+            "text": "Hi!<eos>",
+            "prompt_tokens": 2,
+            "generated_tokens": 2,
+            "stopped_on_eos": True,
+        }
+    ]
+    markdown = output.read_text(encoding="utf-8")
+    assert "Continuation:" in markdown
+    assert "    !<eos>" in markdown
+    assert "[1, 2" not in markdown
+
+
+def test_sample_checkpoint_uses_real_checkpoint_and_tokenizer(tmp_path: Path) -> None:
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+
+    tokenizer = Tokenizer(
+        WordLevel(
+            vocab={
+                "<pad>": 0,
+                "<bos>": 1,
+                "<eos>": 2,
+                "<unk>": 3,
+                "Hello": 4,
+                "world": 5,
+            },
+            unk_token="<unk>",
+        )
+    )
+    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tokenizer.save(str(tokenizer_path))
+    checkpoint = tmp_path / "checkpoint.pt"
+    config = BackboneConfig(
+        name="sample-test",
+        vocab_size=tokenizer.get_vocab_size(),
+        context_length=8,
+        embedding_dim=16,
+        layers=1,
+        heads=4,
+        feedforward_dim=32,
+    )
+    save_pretrain_checkpoint(checkpoint, model=DenseBackbone(config), config=config, step=3)
+
+    payload = sample_checkpoint(
+        SampleCheckpointConfig(
+            checkpoint_path=checkpoint,
+            tokenizer_path=tokenizer_path,
+            output_path=tmp_path / "samples.md",
+            prompts=("Hello world",),
+            max_new_tokens=1,
+        )
+    )
+
+    assert payload["checkpoint_step"] == 3
+    assert payload["samples"][0]["prompt"] == "Hello world"
+    assert payload["samples"][0]["generated_tokens"] == 1
+    assert (tmp_path / "samples.md").is_file()
+
+
+def test_checkpoint_sample_rejects_prompt_above_context() -> None:
+    with pytest.raises(ValueError, match="above checkpoint context length 4"):
+        generate_completion(
+            _SampleModel(),
+            _SampleTokenizer(),
+            "12345",
+            max_new_tokens=1,
+            eos_id=0,
+            device=torch.device("cpu"),
+        )
+
+
+def test_checkpoint_sample_rejects_tokenizer_vocab_drift(tmp_path: Path, monkeypatch) -> None:
+    from esme_pretrain.postrun import sample_checkpoint as sample_module
+
+    checkpoint = tmp_path / "checkpoint.pt"
+    tokenizer_path = tmp_path / "tokenizer.json"
+    checkpoint.touch()
+    tokenizer_path.touch()
+    tokenizer = _SampleTokenizer()
+    monkeypatch.setattr(tokenizer, "get_vocab_size", lambda: 6)
+    monkeypatch.setattr(
+        sample_module,
+        "load_pretrain_checkpoint",
+        lambda *_args, **_kwargs: SimpleNamespace(model=_SampleModel(), step=12),
+    )
+    monkeypatch.setattr(sample_module, "load_tokenizer", lambda _path: tokenizer)
+
+    with pytest.raises(ValueError, match="vocab size does not match"):
+        sample_checkpoint(
+            SampleCheckpointConfig(
+                checkpoint_path=checkpoint,
+                tokenizer_path=tokenizer_path,
+                output_path=tmp_path / "samples.md",
+                prompts=("Hello",),
+            )
+        )
 
 
 def test_two_small_checkpoints_evaluate_on_identical_token_batches(tmp_path: Path) -> None:

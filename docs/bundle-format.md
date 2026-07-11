@@ -55,6 +55,9 @@ Exactly the `BackboneConfig` fields: `name`, `vocab_size`, `context_length`,
 `rope_theta`, `rms_norm_eps`, `tie_embeddings`, `qk_norm`, `z_loss_weight`,
 `attention_kind`.
 
+In v1, `attention_kind` is preserved as the serialized `"gqa"` architecture
+tag. Only grouped-query attention is implemented by the current producer.
+
 ## weights.pt
 
 A torch-saved dict with `format_version: 1`, `format`, `metadata.key_format`

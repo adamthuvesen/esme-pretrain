@@ -89,6 +89,29 @@ def test_export_cli_returns_error_for_missing_checkpoint(tmp_path, capsys) -> No
     assert "does not exist" in captured.err
 
 
+def test_sample_cli_returns_error_for_missing_checkpoint(tmp_path, capsys) -> None:
+    exit_code = main(
+        [
+            "sample",
+            "--checkpoint",
+            str(tmp_path / "missing.pt"),
+            "--tokenizer",
+            str(tmp_path / "tokenizer.json"),
+            "--prompt",
+            "Once upon a time",
+            "--output",
+            str(tmp_path / "samples.md"),
+            "--json",
+        ]
+    )
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "sample failed" in captured.err
+    assert "checkpoint does not exist" in captured.err
+
+
 def test_eval_checkpoints_cli_returns_error_for_missing_config(tmp_path, capsys) -> None:
     exit_code = main(
         [
