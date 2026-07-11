@@ -202,7 +202,6 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
         grad_accum_steps=grad_accum,
         learning_rate=float(optimizer["learning_rate"]),
         min_lr_ratio=float(optimizer["min_lr_ratio"]),
-        lr_schedule=str(optimizer["lr_schedule"]),
         decay_fraction=float(optimizer["decay_fraction"]),
         warmup_steps=min(1, int(params["max_steps"])),
         weight_decay=float(optimizer["weight_decay"]),
@@ -215,7 +214,6 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
         log_interval=1,
         eval_interval=0,
         checkpoint_interval=0,
-        sample_interval=0,
         output_dir=output_dir,
     )
     logger = RunLogger(output_dir, WandbSettings(enabled=False))

@@ -61,7 +61,7 @@ class BackboneConfig:
     tie_embeddings: bool = True
     qk_norm: bool = True
     z_loss_weight: float = 1e-4
-    attention_kind: str = "gqa"  # "mha" | "gqa"
+    attention_kind: str = "gqa"
 
     def __post_init__(self) -> None:
         if self.embedding_dim % self.heads != 0:
@@ -70,17 +70,12 @@ class BackboneConfig:
             raise ValueError("kv_heads must be at least 1")
         if self.heads % self.effective_kv_heads != 0:
             raise ValueError("heads must be divisible by kv_heads")
-        if self.attention_kind == "mha" and self.effective_kv_heads != self.heads:
-            raise ValueError("attention_kind='mha' requires kv_heads to equal heads")
         if self.context_length < 2:
             raise ValueError("context_length must be at least 2")
         if self.z_loss_weight < 0:
             raise ValueError("z_loss_weight must be non-negative (0 disables)")
-        if self.attention_kind not in ATTENTION_VARIANTS:
-            raise ValueError(
-                f"attention_kind must be one of {sorted(ATTENTION_VARIANTS)}, "
-                f"got {self.attention_kind!r}"
-            )
+        if self.attention_kind != "gqa":
+            raise ValueError(f"attention_kind must be 'gqa', got {self.attention_kind!r}")
 
     @property
     def head_dim(self) -> int:
@@ -129,55 +124,7 @@ class BackboneConfig:
 
 
 class CausalSelfAttention(torch.nn.Module):
-    """The attention interface every variant implements.
-
-    An attention variant maps a pre-normed residual stream to an attention output
-    of the same shape, given the precomputed RoPE tables:
-    ``forward(hidden[B, T, D], cos[T, head_dim], sin[T, head_dim]) -> [B, T, D]``.
-    Swapping MHA and GQA changes which subclass :func:`build_attention` returns;
-    nothing else in the model moves. Subclasses take a :class:`BackboneConfig`.
-    """
-
-    def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
-
-class MultiHeadAttention(CausalSelfAttention):
-    """Multi-head self-attention: RoPE + optional QK-norm + SDPA-flash."""
-
-    def __init__(self, config: BackboneConfig) -> None:
-        super().__init__()
-        if config.effective_kv_heads != config.heads:
-            raise ValueError("MultiHeadAttention requires kv_heads to equal heads")
-        self.heads = config.heads
-        self.head_dim = config.head_dim
-        d = config.embedding_dim
-        self.wq = torch.nn.Linear(d, d, bias=False)
-        self.wk = torch.nn.Linear(d, d, bias=False)
-        self.wv = torch.nn.Linear(d, d, bias=False)
-        self.wo = torch.nn.Linear(d, d, bias=False)
-        # QK-norm normalizes each head's query/key vector (length head_dim) before
-        # RoPE, which stabilizes attention logits at ~no cost.
-        self.q_norm = RMSNorm(self.head_dim, config.rms_norm_eps) if config.qk_norm else None
-        self.k_norm = RMSNorm(self.head_dim, config.rms_norm_eps) if config.qk_norm else None
-
-    def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
-        batch, seq, _ = hidden.shape
-        query = self.wq(hidden).view(batch, seq, self.heads, self.head_dim).transpose(1, 2)
-        key = self.wk(hidden).view(batch, seq, self.heads, self.head_dim).transpose(1, 2)
-        value = self.wv(hidden).view(batch, seq, self.heads, self.head_dim).transpose(1, 2)
-        if self.q_norm is not None and self.k_norm is not None:
-            query = self.q_norm(query)
-            key = self.k_norm(key)
-        query, key = apply_rope(query, key, cos, sin)
-        # is_causal lets SDPA skip the explicit mask and pick a fused causal kernel.
-        attention = F.scaled_dot_product_attention(query, key, value, is_causal=True)
-        attention = attention.transpose(1, 2).reshape(batch, seq, self.heads * self.head_dim)
-        return self.wo(attention)
-
-
-class GroupedQueryAttention(CausalSelfAttention):
-    """Grouped-query attention: full query heads with fewer shared KV heads.
+    """Causal grouped-query attention.
 
     The implementation repeats K/V heads before SDPA rather than relying on a
     version-specific ``enable_gqa`` flag, so CPU tests and pinned Modal torch use
@@ -216,21 +163,11 @@ class GroupedQueryAttention(CausalSelfAttention):
         return self.wo(attention)
 
 
-ATTENTION_VARIANTS: dict[str, type[CausalSelfAttention]] = {
-    "mha": MultiHeadAttention,
-    "gqa": GroupedQueryAttention,
-}
-
-
-def build_attention(config: BackboneConfig) -> CausalSelfAttention:
-    return ATTENTION_VARIANTS[config.attention_kind](config)
-
-
 class DecoderBlock(torch.nn.Module):
     def __init__(self, config: BackboneConfig) -> None:
         super().__init__()
         self.attention_norm = RMSNorm(config.embedding_dim, config.rms_norm_eps)
-        self.attention = build_attention(config)
+        self.attention = CausalSelfAttention(config)
         self.feedforward_norm = RMSNorm(config.embedding_dim, config.rms_norm_eps)
         self.feedforward = SwiGLU(config.embedding_dim, config.feedforward_dim)
 
@@ -291,40 +228,6 @@ class DenseBackbone(torch.nn.Module):
         for block in self.blocks:
             hidden = block(hidden, cos, sin)
         return self.lm_head(self.final_norm(hidden))
-
-    @torch.no_grad()
-    def generate(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int,
-        *,
-        temperature: float = 0.0,
-        top_k: int | None = None,
-    ) -> torch.Tensor:
-        """Greedy (or low-temperature) autoregressive sampling for sample logging.
-
-        No KV cache — this is for short qualitative samples, not serving.
-        """
-        was_training = self.training
-        self.eval()
-        ctx = self.config.context_length
-        generated = input_ids
-        for _ in range(max_new_tokens):
-            conditioned = generated[:, -ctx:]
-            next_logits = self(conditioned)[:, -1, :]
-            if temperature <= 0.0:
-                next_id = next_logits.argmax(dim=-1, keepdim=True)
-            else:
-                next_logits = next_logits / temperature
-                if top_k is not None:
-                    kth = torch.topk(next_logits, top_k, dim=-1).values[:, -1, None]
-                    next_logits = next_logits.masked_fill(next_logits < kth, float("-inf"))
-                probabilities = F.softmax(next_logits, dim=-1)
-                next_id = torch.multinomial(probabilities, num_samples=1)
-            generated = torch.cat((generated, next_id), dim=1)
-        if was_training:
-            self.train()
-        return generated
 
 
 def language_model_loss(
@@ -388,44 +291,3 @@ def baseline_config(name: str = "214M", **overrides: Any) -> BackboneConfig:
         raise ValueError(f"unknown backbone preset {name!r}; known: {sorted(BACKBONE_CONFIGS)}")
     config = BACKBONE_CONFIGS[name]
     return replace(config, **overrides) if overrides else config
-
-
-def _probe_config(**fields: Any) -> BackboneConfig:
-    return BackboneConfig(
-        attention_kind="mha",
-        qk_norm=False,
-        z_loss_weight=0.0,
-        **fields,
-    )
-
-
-# Throughput-probe shapes (MHA, no QK-norm), separate from the accepted 214M preset.
-PROBE_CONFIGS: dict[str, BackboneConfig] = {
-    "124M": _probe_config(
-        name="probe-124M",
-        vocab_size=BACKBONE_VOCAB_SIZE,
-        context_length=1024,
-        embedding_dim=768,
-        layers=12,
-        heads=12,
-        feedforward_dim=2048,
-    ),
-    "150M": _probe_config(
-        name="probe-150M",
-        vocab_size=BACKBONE_VOCAB_SIZE,
-        context_length=1024,
-        embedding_dim=896,
-        layers=12,
-        heads=14,
-        feedforward_dim=2432,
-    ),
-    "350M": _probe_config(
-        name="probe-350M",
-        vocab_size=BACKBONE_VOCAB_SIZE,
-        context_length=1024,
-        embedding_dim=1024,
-        layers=24,
-        heads=16,
-        feedforward_dim=2816,
-    ),
-}

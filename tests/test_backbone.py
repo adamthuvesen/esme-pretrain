@@ -121,13 +121,13 @@ def test_gqa_forward_shape() -> None:
 
 
 def test_gqa_reduces_key_value_projection_params() -> None:
-    mha = _small_config().parameter_count()["total"]
-    gqa = _small_config(attention_kind="gqa", kv_heads=2).parameter_count()["total"]
+    full_kv = _small_config().parameter_count()["total"]
+    grouped_kv = _small_config(kv_heads=2).parameter_count()["total"]
     config = _small_config()
     expected_savings = (
         config.layers * 2 * config.embedding_dim * (config.heads - 2) * config.head_dim
     )
-    assert mha - gqa == expected_savings
+    assert full_kv - grouped_kv == expected_savings
 
 
 def test_tied_embeddings_share_storage() -> None:
@@ -162,22 +162,9 @@ def test_z_loss_increases_total_loss() -> None:
     assert plain_parts["ce_loss"] == pytest.approx(z_parts["ce_loss"], rel=1e-6)
 
 
-def test_generate_extends_sequence() -> None:
-    model = DenseBackbone(_small_config())
-    prompt = torch.randint(0, 128, (1, 4))
-    out = model.generate(prompt, max_new_tokens=6, temperature=0.0)
-    assert out.shape == (1, 10)
-    assert torch.equal(out[:, :4], prompt)
-
-
 def test_unknown_attention_kind_rejected() -> None:
     with pytest.raises(ValueError, match="attention_kind"):
         _small_config(attention_kind="bogus")
-
-
-def test_mha_rejects_reduced_kv_heads() -> None:
-    with pytest.raises(ValueError, match="mha"):
-        _small_config(attention_kind="mha", kv_heads=2)
 
 
 def test_gqa_requires_kv_heads_to_divide_query_heads() -> None:

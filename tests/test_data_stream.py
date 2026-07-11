@@ -39,7 +39,6 @@ def test_loader_shapes_and_next_token_shift() -> None:
     assert isinstance(first, Batch)
     assert first.input_ids.shape == (2, 4)
     assert first.targets.shape == (2, 4)
-    assert first.token_count == 8
     # targets are inputs shifted one position within each packed window.
     assert torch.equal(first.input_ids[:, 1:], first.targets[:, :-1])
 

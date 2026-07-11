@@ -13,22 +13,15 @@ class PipelineStage:
 
 
 PIPELINE_STAGES: tuple[PipelineStage, ...] = (
-    PipelineStage(1, "raw text", "local corpus fixtures and FineWeb-Edu streaming", "available"),
+    PipelineStage(1, "raw text", "FineWeb-Edu streaming", "available"),
     PipelineStage(2, "data report", "dataset accounting and split report", "available"),
     PipelineStage(3, "tokenizer", "214M B200 byte-level BPE contract", "accepted"),
-    PipelineStage(4, "packed tokens", "fixed-window token shards", "available"),
+    PipelineStage(4, "packed tokens", "streaming token windows", "available"),
     PipelineStage(5, "transformer", "214M dense GQA pretrain model", "accepted"),
     PipelineStage(6, "training loop", "B200 Modal pretrain loop", "accepted 10B run"),
     PipelineStage(7, "eval", "fixed checkpoint eval + bpb", "accepted"),
     PipelineStage(8, "checkpoint export", "llm-infer bundle export", "accepted"),
 )
-
-SIBLING_REPOS: dict[str, str] = {
-    "esme-posttrain": "SFT, DPO, and verifier-backed RLVR on the base checkpoint",
-    "llm-rlvr": "adapt a model with SFT and execution-verified RLVR",
-    "grpo-decomp": "measure where RLVR gains come from",
-    "llm-infer": "serve and benchmark exported checkpoints",
-}
 
 
 @dataclass(frozen=True)

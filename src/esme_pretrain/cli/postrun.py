@@ -131,7 +131,6 @@ def handle_export(args: argparse.Namespace) -> int:
                 checkpoint_path=args.checkpoint,
                 tokenizer_path=args.tokenizer,
                 output_dir=args.output,
-                export_format=args.format,
             )
         )
     except ValueError as error:

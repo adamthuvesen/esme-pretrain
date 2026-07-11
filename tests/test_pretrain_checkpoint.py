@@ -37,7 +37,7 @@ def test_checkpoint_round_trip_preserves_logits(tmp_path: Path) -> None:
 
     loaded = load_pretrain_checkpoint(path)
     assert loaded.step == 7
-    assert loaded.config == config
+    assert loaded.model.config == config
     assert loaded.metrics["loss"] == pytest.approx(1.23)
     assert loaded.optimizer_state is not None
 
@@ -86,7 +86,7 @@ def test_current_checkpoint_schema_loads_from_disk_payload(tmp_path: Path) -> No
     loaded = load_pretrain_checkpoint(path)
 
     assert loaded.step == 26015
-    assert loaded.config == config
+    assert loaded.model.config == config
     assert loaded.data_offset_tokens == 544
     assert loaded.rng_state
     assert loaded.metrics["loss"] == pytest.approx(2.5)

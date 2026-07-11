@@ -1,10 +1,10 @@
 """GPU pretraining loop for the DenseBackbone 214M model.
 
 Uses bf16 autocast, optional ``torch.compile``, fused AdamW, gradient accumulation,
-streaming data loading, and periodic eval/checkpointing. LR schedules: cosine or WSD.
+streaming data loading, periodic eval/checkpointing, and a WSD learning-rate schedule.
 Metrics go to local JSONL/CSV with optional W&B mirroring via :class:`RunLogger`.
 
-Plumbing lives in the training spine: seed/device/precision/LR schedules in
+Plumbing lives in the training spine: seed/device/precision/WSD schedule in
 ``training/runtime.py``, checkpoint save/load in ``training/checkpointing.py``,
 metrics in ``training/metrics.py``. This module holds the config, result, and loop.
 """
@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import asdict, dataclass, field
+from itertools import islice
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -33,10 +34,10 @@ from esme_pretrain.training.eval_batch import mean_ce_loss
 from esme_pretrain.training.metrics import RunLogger
 from esme_pretrain.training.runtime import (
     autocast_context,
-    learning_rate_schedule,
     resolve_device,
     resolve_dtype,
     set_seed,
+    wsd_lr,
 )
 
 
@@ -48,7 +49,6 @@ class PretrainConfig:
     grad_accum_steps: int = 1
     learning_rate: float = 3e-4
     min_lr_ratio: float = 0.1  # final LR = learning_rate * min_lr_ratio
-    lr_schedule: str = "cosine"  # "cosine" or "wsd" (warmup-stable-decay)
     decay_fraction: float = 0.2  # WSD: final fraction of steps spent decaying
     warmup_steps: int = 0
     weight_decay: float = 0.1
@@ -64,10 +64,6 @@ class PretrainConfig:
     eval_interval: int = 0  # 0 disables periodic eval
     eval_batches: int = 0
     checkpoint_interval: int = 0  # 0 -> only the final checkpoint
-    sample_interval: int = 0  # 0 disables sample generation
-    sample_prompt_ids: tuple[int, ...] = (0,)
-    sample_new_tokens: int = 32
-    sample_count: int = 2
     output_dir: Path = Path("runs/pretrain")
     resume_from: Path | None = None
 
@@ -82,8 +78,6 @@ class PretrainConfig:
             raise TrainerError("learning_rate must be positive")
         if not 0.0 <= self.min_lr_ratio <= 1.0:
             raise TrainerError("min_lr_ratio must be in [0, 1]")
-        if self.lr_schedule not in {"cosine", "wsd"}:
-            raise TrainerError("lr_schedule must be 'cosine' or 'wsd'")
         if not 0.0 <= self.decay_fraction < 1.0:
             raise TrainerError("decay_fraction must be in [0, 1)")
         if not 0 <= self.warmup_steps <= self.max_steps:
@@ -92,7 +86,7 @@ class PretrainConfig:
             raise TrainerError("grad_clip must be positive")
         if self.log_interval < 1:
             raise TrainerError("log_interval must be at least 1")
-        for name in ("eval_interval", "eval_batches", "checkpoint_interval", "sample_interval"):
+        for name in ("eval_interval", "eval_batches", "checkpoint_interval"):
             if getattr(self, name) < 0:
                 raise TrainerError(f"{name} must be non-negative (0 disables)")
 
@@ -212,28 +206,17 @@ def evaluate(
     """Mean cross-entropy over a bounded number of eval batches (pure CE, no z-loss)."""
     if batches < 1:
         return None
-    was_training = model.training
-    model.eval()
-    pairs: list[tuple[Any, Any]] = []
     iterator = iter(loader)
     try:
-        for _ in range(batches):
-            try:
-                batch: Batch = next(iterator)
-            except StopIteration:
-                break
-            pairs.append((batch.input_ids, batch.targets))
+        pairs = ((batch.input_ids, batch.targets) for batch in islice(iterator, batches))
+        return mean_ce_loss(
+            model,
+            pairs,
+            device=next(model.parameters()).device,
+            autocast=autocast,
+        )
     finally:
         _close_iterator(iterator)
-    result = mean_ce_loss(
-        model,
-        pairs,
-        device=next(model.parameters()).device,
-        autocast=autocast,
-    )
-    if was_training:
-        model.train()
-    return result
 
 
 def run_pretrain(
@@ -256,16 +239,14 @@ def run_pretrain(
     autocast = autocast_context(device, dtype)
     notes: list[str] = []
 
-    model: torch.nn.Module = DenseBackbone(config.model).to(device)
     start_step = 0
     resume_optimizer_state: dict[str, Any] | None = None
     resume_data_offset = 0
     if config.resume_from is not None:
         loaded = load_pretrain_checkpoint(config.resume_from, map_location=device)
-        if loaded.config != config.model:
+        if loaded.model.config != config.model:
             raise TrainerError("resume checkpoint config does not match requested pretrain config")
-        model.load_state_dict(loaded.model.state_dict())
-        model.to(device)
+        model: torch.nn.Module = loaded.model.to(device)
         start_step = loaded.step
         resume_optimizer_state = loaded.optimizer_state
         resume_data_offset = loaded.data_offset_tokens
@@ -287,6 +268,8 @@ def run_pretrain(
             f"resumed from {config.resume_from} at step {start_step} "
             f"(stream offset {resume_data_offset} tokens)"
         )
+    else:
+        model = DenseBackbone(config.model).to(device)
 
     model.train()
     compiled = False
@@ -300,14 +283,6 @@ def run_pretrain(
     fused = config.use_fused_optimizer and is_cuda
     max_lr = config.learning_rate
     min_lr = config.learning_rate * config.min_lr_ratio
-    lr_at_step = learning_rate_schedule(
-        schedule=config.lr_schedule,
-        warmup_steps=config.warmup_steps,
-        max_steps=config.max_steps,
-        max_lr=max_lr,
-        min_lr=min_lr,
-        decay_fraction=config.decay_fraction,
-    )
     optimizer = torch.optim.AdamW(
         _param_groups(model, config.weight_decay),
         lr=max_lr,
@@ -330,13 +305,18 @@ def run_pretrain(
     val_last: float | None = None
     grad_norm_last: float | None = None
     final_step = start_step
-    data_exhausted_at_step: int | None = None
-
     if is_cuda:
         torch.cuda.reset_peak_memory_stats(device)
 
     for step in range(start_step, config.max_steps):
-        learning_rate = lr_at_step(step)
+        learning_rate = wsd_lr(
+            step,
+            warmup_steps=config.warmup_steps,
+            max_steps=config.max_steps,
+            max_lr=max_lr,
+            min_lr=min_lr,
+            decay_fraction=config.decay_fraction,
+        )
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
 
@@ -347,13 +327,9 @@ def run_pretrain(
         optimizer.zero_grad(set_to_none=True)
         accumulated = _accumulate_gradients(model, train_iter, config, autocast)
         if accumulated is None:
-            data_exhausted_at_step = step
-
-        if data_exhausted_at_step is not None:
             optimizer.zero_grad(set_to_none=True)
             notes.append(
-                f"data exhausted at step {data_exhausted_at_step}; "
-                f"stopped after {final_step} completed steps"
+                f"data exhausted at step {step}; stopped after {final_step} completed steps"
             )
             break
 
@@ -418,17 +394,8 @@ def run_pretrain(
                 val_last = val
                 logger.log(completed_step, {"val_loss": val})
 
-        if config.sample_interval > 0 and (completed_step % config.sample_interval == 0 or is_last):
-            samples = _generate_samples(model, config, device)
-            if samples:
-                logger.log_samples(
-                    completed_step, prompt=str(list(config.sample_prompt_ids)), samples=samples
-                )
-
         should_checkpoint = (
-            config.checkpoint_interval > 0
-            and completed_step > start_step
-            and completed_step % config.checkpoint_interval == 0
+            config.checkpoint_interval > 0 and completed_step % config.checkpoint_interval == 0
         )
         if should_checkpoint:
             save_pretrain_checkpoint(
@@ -504,20 +471,3 @@ def run_pretrain(
     )
     logger.summary(result.to_dict())
     return result
-
-
-def _generate_samples(
-    model: torch.nn.Module, config: PretrainConfig, device: torch.device
-) -> list[str]:
-    """Greedy token-id samples for qualitative logging (decoded by the caller's tokenizer).
-
-    Without a tokenizer here, samples are the generated id sequences as strings —
-    the Modal smoke decodes them with the real tokenizer before logging.
-    """
-    prompt = torch.tensor([list(config.sample_prompt_ids)], dtype=torch.long, device=device)
-    base = getattr(model, "_orig_mod", model)
-    samples: list[str] = []
-    for _ in range(config.sample_count):
-        generated = base.generate(prompt, config.sample_new_tokens, temperature=0.8, top_k=50)
-        samples.append(" ".join(str(t) for t in generated[0].tolist()))
-    return samples

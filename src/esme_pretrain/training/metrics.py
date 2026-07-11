@@ -117,22 +117,6 @@ class RunLogger:
         if self.wandb_run is not None:
             self.wandb_run.log(metrics, step=step)
 
-    def log_samples(self, step: int, prompt: str, samples: list[str]) -> None:
-        """Record a couple of qualitative generations (local file + W&B)."""
-        path = self.output_dir / "samples.md"
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(f"\n## step {step}\n\nprompt: {prompt!r}\n\n")
-            for index, text in enumerate(samples):
-                handle.write(f"- sample {index}: {text!r}\n")
-        if self.wandb_run is not None:
-            with contextlib.suppress(ImportError, OSError, RuntimeError, ValueError):
-                import wandb
-
-                table = wandb.Table(columns=["step", "prompt", "sample"])
-                for text in samples:
-                    table.add_data(step, prompt, text)
-                self.wandb_run.log({"samples": table}, step=step)
-
     def summary(self, values: dict[str, Any]) -> None:
         (self.output_dir / "run-summary.json").write_text(
             json.dumps(values, indent=2), encoding="utf-8"

@@ -63,8 +63,9 @@ The tokenizer is a digit-split byte-level BPE with a 32,768 vocab, trained on
 a 50M-token prefix of the training split, with round-trip and coverage checks
 required before use. Digit splitting makes numbers tokenize as single-digit
 sequences, which matters for a model this small doing arithmetic later in the
-chain. The choice was measured: a tokenizer lab trained a probe model per
-candidate and compared loss. The method survived; the
+chain. The choice was measured: a probe model was trained for each candidate,
+and the losses were compared in a tokenizer lab that has since been retired. The
+method survived; the
 per-candidate loss table did not. No artifact records which alternatives were
 scored, and that loss is the first entry in a pattern this document keeps
 returning to.

@@ -117,8 +117,6 @@
     "eval_interval": 500,
     "eval_batches": 20,
     "checkpoint_interval": 500,
-    "sample_interval": 500,
-    "sample_new_tokens": 80,
     "wandb_project": "esme-pretrain"
   },
   "artifacts": {
@@ -131,7 +129,6 @@
       "metrics.jsonl",
       "throughput.csv",
       "checkpoint.pt",
-      "samples.md",
       "environment.txt",
       "cost.json",
       "run-summary.json",

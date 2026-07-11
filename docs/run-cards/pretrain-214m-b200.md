@@ -68,9 +68,9 @@ PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=24 uv run --with modal==1.5.0 modal r
 
 The script refuses the full Modal job unless `--approved` is present. The
 `modal run --detach` form keeps the ephemeral app alive if the local laptop
-disconnects. The launcher uses `run_pretrain_launch.spawn(...).get()` instead of
-a direct `.remote(...)` call so the function call follows Modal's long-job
-pattern.
+disconnects. `run_pretrain_launch.spawn(...)` is called by the launcher, and the
+function-call ID is returned by default. With `--no-spawn`, `.get()` is awaited
+only for a short inline smoke.
 
 ## Required Artifacts
 
@@ -83,7 +83,6 @@ The run directory `runs/pretrain-214m-b200/pretrain_214m_b200/` should contain:
 - `metrics.jsonl`
 - `throughput.csv`
 - `checkpoint.pt`
-- `samples.md`
 - `environment.txt`
 - `cost.json`
 - `run-summary.json`
