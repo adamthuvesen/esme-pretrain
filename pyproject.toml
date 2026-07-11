@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Adam Thuvesen" }]
 dependencies = [
   "numpy>=2.0",
+  "tokenizers>=0.21",
   "torch>=2.7",
 ]
 
@@ -24,7 +25,6 @@ dev = [
 baselines = [
   "lm-eval==0.4.12",
   "transformers>=4.55",
-  "tokenizers>=0.21",
   "datasets>=3.0",
   "accelerate>=1.0",
   "zstandard>=0.23",

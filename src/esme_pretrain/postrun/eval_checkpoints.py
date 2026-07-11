@@ -133,8 +133,7 @@ def load_tokenizer(path: Path) -> SupportsEncode:
         from tokenizers import Tokenizer
     except ModuleNotFoundError as error:
         raise ValueError(
-            "tokenizers is required to load tokenizer.json; install the optional "
-            "runtime package before real checkpoint eval"
+            "tokenizers is required to load tokenizer.json; run `uv sync` to install it"
         ) from error
     return Tokenizer.from_file(str(path))
 

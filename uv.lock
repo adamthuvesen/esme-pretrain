@@ -505,6 +505,7 @@ source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "tokenizers" },
     { name = "torch" },
 ]
 
@@ -513,7 +514,6 @@ baselines = [
     { name = "accelerate" },
     { name = "datasets" },
     { name = "lm-eval" },
-    { name = "tokenizers" },
     { name = "transformers" },
     { name = "zstandard" },
 ]
@@ -532,7 +532,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
-    { name = "tokenizers", marker = "extra == 'baselines'", specifier = ">=0.21" },
+    { name = "tokenizers", specifier = ">=0.21" },
     { name = "torch", specifier = ">=2.7" },
     { name = "transformers", marker = "extra == 'baselines'", specifier = ">=4.55" },
     { name = "zstandard", marker = "extra == 'baselines'", specifier = ">=0.23" },

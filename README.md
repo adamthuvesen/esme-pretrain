@@ -97,7 +97,8 @@ Telemetry from the `pretrain_214m_b200` run, plotted from the run's
   metrics, optional W&B logging, mixed precision, and token-accurate resume.
 - Training entrypoints for the current 214M B200 shape, launched with an
   explicit `--approved` flag.
-- Post-training evaluation, bits-per-byte reporting, and `llm-infer` export.
+- Post-training evaluation, decoded checkpoint samples, bits-per-byte reporting,
+  and `llm-infer` export.
 
 Active code lives in [`src/esme_pretrain/`](src/esme_pretrain/).
 
@@ -141,6 +142,12 @@ uv run esme-pretrain eval-checkpoints \
 uv run esme-pretrain base-acceptance-report \
   --run-dir <run-dir> --eval <run-dir>/base-eval.json \
   --output <run-dir>/base-acceptance-report.md --json
+
+# Decoded greedy samples, produced without changing training state
+uv run esme-pretrain sample \
+  --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
+  --prompt "Once upon a time" --max-new-tokens 64 \
+  --output <run-dir>/samples.md --json
 
 # Export the selected checkpoint for llm-infer
 uv run esme-pretrain export \

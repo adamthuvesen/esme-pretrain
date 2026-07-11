@@ -47,6 +47,10 @@ list lives at the bottom of the root [`README.md`](../README.md).
 
 The code, tokenizer, weights, and training artifacts are all local to this repo.
 
+Decoded samples are generated after training from a saved checkpoint and its
+tokenizer. Training RNG state, throughput measurements, and resume behavior are
+left unchanged by sampling.
+
 ## Deliberately Not Used
 
 | Technique                               | Why it is out of scope for this base model                                        |

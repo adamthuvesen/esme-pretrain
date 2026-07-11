@@ -11,6 +11,7 @@ from esme_pretrain.postrun.acceptance_report import (
 )
 from esme_pretrain.postrun.eval_checkpoints import EvalCheckpointConfig, run_eval_checkpoints
 from esme_pretrain.postrun.export_bundle import ExportConfig, export_checkpoint
+from esme_pretrain.postrun.sample_checkpoint import SampleCheckpointConfig, sample_checkpoint
 
 
 def add_postrun_parsers(subparsers: argparse._SubParsersAction) -> None:
@@ -58,6 +59,29 @@ def add_postrun_parsers(subparsers: argparse._SubParsersAction) -> None:
     acceptance.add_argument("--output", required=True, type=Path, help="Markdown report path.")
     acceptance.add_argument("--json", action="store_true", help="Emit machine-readable result.")
     acceptance.set_defaults(handler=handle_base_acceptance_report)
+
+    sample = subparsers.add_parser(
+        "sample",
+        help="Generate decoded text samples from a checkpoint.",
+    )
+    sample.add_argument("--checkpoint", required=True, type=Path, help="Checkpoint to sample.")
+    sample.add_argument("--tokenizer", required=True, type=Path, help="tokenizer.json.")
+    sample.add_argument(
+        "--prompt",
+        required=True,
+        action="append",
+        help="Text prompt. May be repeated.",
+    )
+    sample.add_argument(
+        "--max-new-tokens",
+        default=64,
+        type=int,
+        help="Maximum generated tokens per prompt. Defaults to 64.",
+    )
+    sample.add_argument("--device", default="cpu", help="Torch device. Defaults to cpu.")
+    sample.add_argument("--output", required=True, type=Path, help="Output Markdown path.")
+    sample.add_argument("--json", action="store_true", help="Emit machine-readable result.")
+    sample.set_defaults(handler=handle_sample_checkpoint)
 
     export = subparsers.add_parser(
         "export",
@@ -121,6 +145,30 @@ def handle_base_acceptance_report(args: argparse.Namespace) -> int:
         print("esme-pretrain base-acceptance-report")
         print(f"output: {args.output}")
         print(f"recommended_checkpoint: {payload['fixed_eval']['recommended_checkpoint']}")
+    return 0
+
+
+def handle_sample_checkpoint(args: argparse.Namespace) -> int:
+    try:
+        payload = sample_checkpoint(
+            SampleCheckpointConfig(
+                checkpoint_path=args.checkpoint,
+                tokenizer_path=args.tokenizer,
+                output_path=args.output,
+                prompts=tuple(args.prompt),
+                max_new_tokens=args.max_new_tokens,
+                device=args.device,
+            )
+        )
+    except ValueError as error:
+        print(f"sample failed: {error}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print("esme-pretrain sample")
+        print(f"output: {args.output}")
+        print(f"samples: {len(payload['samples'])}")
     return 0
 
 
