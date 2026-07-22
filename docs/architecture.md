@@ -5,6 +5,103 @@
 of a released model. The design uses current small-model defaults where they
 make the training run simpler, stabler, and easier to serve.
 
+## Pipeline Map
+
+```mermaid
+flowchart TB
+    subgraph entry [Entry Points]
+        CLI["esme-pretrain CLI"]
+        Card["configs/pretrain_214m_b200.json"]
+    end
+
+    subgraph launch [launch/]
+        Validate["pretrain_run run-card validation"]
+        Body["modal_pretrain_body detached Modal run"]
+        Tok["tokenizer train or load"]
+    end
+
+    subgraph data [data/]
+        Corpus["FineWeb-Edu stream, deterministic train/val split"]
+    end
+
+    subgraph training [training/]
+        Stream["StreamingBatchLoader tokenize + pack"]
+        Loop["run_pretrain step loop"]
+        Ckpt["checkpointing"]
+        Metrics["RunLogger + W&B"]
+    end
+
+    subgraph modeling [modeling/]
+        Backbone["DenseBackbone"]
+        Layers["RMSNorm, SwiGLU, RoPE"]
+    end
+
+    subgraph postrun [postrun/]
+        Eval["eval_checkpoints"]
+        Sample["sample_checkpoint"]
+        Accept["acceptance_report"]
+        Export["export_bundle"]
+    end
+
+    subgraph baselines [baselines/]
+        Harness["gate + baseline eval"]
+        Refs["reference models"]
+    end
+
+    Bundle["llm-infer export bundle"]
+
+    CLI --> Validate
+    Card --> Validate
+    Validate --> Body
+    Body --> Tok
+    Body --> Corpus
+    Corpus --> Stream
+    Tok --> Stream
+    Stream --> Loop
+    Loop --> Backbone
+    Backbone --> Layers
+    Loop --> Ckpt
+    Loop --> Metrics
+    Ckpt --> postrun
+    Eval --> Accept
+    Export --> Bundle
+    Bundle --> Harness
+    Harness --> Refs
+```
+
+The `esme-pretrain` CLI also drives every `postrun/` and `baselines/` command;
+those edges are left out of the map to keep the pipeline readable.
+
+Dependency direction stays simple:
+
+```text
+cli -> launch + postrun + baselines -> data + training -> modeling
+```
+
+The one production model implementation is
+[`DenseBackbone`](../src/esme_pretrain/modeling/backbone.py); training, eval,
+sampling, and export all build it from the same `BackboneConfig`.
+
+## Run Flow
+
+1. A run card is validated into `PretrainLaunchConfig`
+   ([`pretrain_run.py`](../src/esme_pretrain/pretrain_run.py)); `--dry-run`
+   prints the run shape and cost estimate without spending.
+2. An approved launch spawns a detached Modal function.
+   [`modal_pretrain_body`](../src/esme_pretrain/launch/modal_pretrain_body.py)
+   loads or trains the digit-split tokenizer, then streams FineWeb-Edu
+   documents through the deterministic train/validation split.
+3. `StreamingBatchLoader` tokenizes and packs documents into fixed
+   context-length token windows feeding `run_pretrain`, which owns the step
+   loop, fixed-batch eval, checkpoints, and W&B metrics. All artifacts land on
+   the run's Modal volume.
+4. Post-run commands reload checkpoints for deterministic eval (the same
+   validation token batches for every checkpoint), decoded samples, the
+   acceptance report, and bundle export.
+5. `baseline-gate` and `baseline-eval` compare the exported bundle against
+   reference models on shared validation slices. The bundle is the only
+   contract `llm-infer` consumes ([bundle-format.md](bundle-format.md)).
+
 ## Model At A Glance
 
 - 213,960,192 parameters.
