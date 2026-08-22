@@ -22,7 +22,6 @@ wandb/
 .modal/
 modal_logs/
 logs/
-openspec/
 *.pt
 *.pth
 *.ckpt
