@@ -15,7 +15,7 @@ from esme_pretrain.baselines.config import (
 )
 from esme_pretrain.data.corpus_stream import document_text_stream
 from esme_pretrain.postrun.bundle import load_bundle
-from esme_pretrain.postrun.eval_checkpoints import load_tokenizer
+from esme_pretrain.postrun.eval_checkpoints import load_tokenizer, partitioned_byte_counts
 from esme_pretrain.pretrain_run import load_pretrain_config
 from esme_pretrain.torch import torch
 
@@ -35,29 +35,6 @@ class EvalModel(Protocol):
     def encode(self, text: str) -> EncodedText: ...
 
     def module(self) -> torch.nn.Module: ...
-
-
-def partitioned_byte_counts(text: str, offsets: Sequence[tuple[int, int]]) -> list[int]:
-    """Per-token UTF-8 byte counts that partition the full text exactly.
-
-    Token offsets from byte-level BPE tokenizers can trim whitespace or overlap,
-    so raw offset spans under- or over-count bytes. Partitioning by token start
-    boundaries assigns every byte to exactly one token: the counts always sum to
-    ``len(text.encode("utf-8"))``.
-    """
-    if not offsets:
-        if text:
-            raise ValueError("tokenizer produced no tokens for non-empty text")
-        return []
-    starts = [int(start) for start, _end in offsets]
-    boundaries = [0]
-    for start in starts[1:]:
-        boundaries.append(max(start, boundaries[-1]))
-    boundaries.append(len(text))
-    counts = []
-    for begin, end in zip(boundaries[:-1], boundaries[1:], strict=True):
-        counts.append(len(text[begin:end].encode("utf-8")))
-    return counts
 
 
 def _encoded_text(text: str, ids: Sequence[int], offsets: Sequence[tuple[int, int]]) -> EncodedText:

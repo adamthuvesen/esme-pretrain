@@ -261,6 +261,15 @@ def test_token_byte_counts_use_utf8_lengths() -> None:
     assert token_byte_counts("aøb", Encoding(), token_count=3) == [1, 2, 1]
 
 
+def test_token_byte_counts_count_a_split_character_once() -> None:
+    # Byte-level BPE can split one 4-byte character across two tokens that both carry
+    # the character's offsets. Counting each span would report 8 bytes and lower BPB.
+    class Encoding:
+        offsets = [(0, 1), (0, 1)]
+
+    assert token_byte_counts("😀", Encoding(), token_count=2) == [0, 4]
+
+
 def test_tokenized_validation_stream_uses_shared_corpus_stream(monkeypatch) -> None:
     config = object()
     captured: dict[str, object] = {}
@@ -460,6 +469,29 @@ def test_export_rejects_tokenizer_vocab_drift(tmp_path: Path, monkeypatch) -> No
             ExportConfig(
                 checkpoint_path=checkpoint,
                 tokenizer_path=tokenizer,
+                output_dir=tmp_path / "export",
+            )
+        )
+
+
+def test_export_rejects_a_tokenizer_other_than_the_run_tokenizer(
+    tmp_path: Path, monkeypatch
+) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    config = _small_config()
+    checkpoint = run_dir / "checkpoint.pt"
+    (run_dir / "tokenizer.json").write_text('{"kind":"run"}', encoding="utf-8")
+    other = tmp_path / "tokenizer.json"
+    other.write_text('{"kind":"other"}', encoding="utf-8")
+    save_pretrain_checkpoint(checkpoint, model=DenseBackbone(config), config=config, step=9)
+    _install_fake_tokenizers(monkeypatch, other, vocab_size=config.vocab_size)
+
+    with pytest.raises(ValueError, match="does not match the run tokenizer"):
+        export_checkpoint(
+            ExportConfig(
+                checkpoint_path=checkpoint,
+                tokenizer_path=other,
                 output_dir=tmp_path / "export",
             )
         )

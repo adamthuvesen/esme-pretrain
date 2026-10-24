@@ -193,13 +193,37 @@ def token_byte_counts(text: str, encoding: Any, *, token_count: int) -> list[int
     offsets = getattr(encoding, "offsets", None)
     if offsets is None or len(offsets) != token_count:
         raise ValueError("tokenizer encoding must expose offsets for bits-per-byte eval")
-    byte_counts: list[int] = []
-    for start, end in offsets:
-        if start == end:
-            byte_counts.append(0)
-            continue
-        byte_counts.append(len(text[int(start) : int(end)].encode("utf-8")))
+    byte_counts = partitioned_byte_counts(text, offsets)
+    text_bytes = len(text.encode("utf-8"))
+    if sum(byte_counts) != text_bytes:
+        raise ValueError(
+            f"byte accounting mismatch: tokens cover {sum(byte_counts)} bytes, "
+            f"document has {text_bytes}"
+        )
     return byte_counts
+
+
+def partitioned_byte_counts(text: str, offsets: Sequence[tuple[int, int]]) -> list[int]:
+    """Per-token UTF-8 byte counts that partition the full text exactly.
+
+    Token offsets from byte-level BPE tokenizers can trim whitespace or overlap,
+    so raw offset spans under- or over-count bytes. Partitioning by token start
+    boundaries assigns every byte to exactly one token: the counts always sum to
+    ``len(text.encode("utf-8"))``.
+    """
+    if not offsets:
+        if text:
+            raise ValueError("tokenizer produced no tokens for non-empty text")
+        return []
+    starts = [int(start) for start, _end in offsets]
+    boundaries = [0]
+    for start in starts[1:]:
+        boundaries.append(max(start, boundaries[-1]))
+    boundaries.append(len(text))
+    counts = []
+    for begin, end in zip(boundaries[:-1], boundaries[1:], strict=True):
+        counts.append(len(text[begin:end].encode("utf-8")))
+    return counts
 
 
 def batch_token_byte_windows(

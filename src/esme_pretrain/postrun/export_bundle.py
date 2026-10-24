@@ -34,6 +34,7 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
 
     loaded = load_pretrain_checkpoint(config.checkpoint_path)
     _validate_export_tokenizer(config.tokenizer_path, loaded.model.config.vocab_size)
+    _require_run_tokenizer(config.checkpoint_path, config.tokenizer_path)
     inferred = _sibling_run_metadata(config.checkpoint_path)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -135,6 +136,19 @@ def _validate_export_tokenizer(tokenizer_path: Path, vocab_size: int) -> None:
     missing = [token for token in EXPORT_SPECIAL_TOKENS if tokenizer.token_to_id(token) is None]
     if missing:
         raise ValueError(f"tokenizer is missing required special tokens: {missing}")
+
+
+def _require_run_tokenizer(checkpoint_path: Path, tokenizer_path: Path) -> None:
+    # Vocab size and special tokens cannot tell two 32k byte-level BPEs apart. When the
+    # run's own tokenizer sits next to the checkpoint, the exported one must be it.
+    run_tokenizer = checkpoint_path.parent / "tokenizer.json"
+    if not run_tokenizer.exists():
+        return
+    if file_sha256(run_tokenizer) != file_sha256(tokenizer_path):
+        raise ValueError(
+            f"tokenizer {tokenizer_path} does not match the run tokenizer {run_tokenizer} "
+            "next to the checkpoint"
+        )
 
 
 def _sibling_run_metadata(checkpoint_path: Path) -> dict[str, Any]:
