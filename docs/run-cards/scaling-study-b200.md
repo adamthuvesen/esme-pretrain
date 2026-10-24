@@ -253,3 +253,44 @@ card, the study stops, and the LR choice goes back to Adam. These three runs
 were scored with TF32 matmuls, before the fp32 scoring fix. All three share that
 path, so the comparison between them holds.
 
+
+## Amendment 1: Per-Shape LR Sweep (2026-10-24, before any sweep run)
+
+The LR gate failed, so the LR choice went back to Adam. He chose to tune the LR
+per shape rather than keep one LR for all sizes. One LR across sizes puts each
+size at a different distance from its own optimum. That bends the fitted
+exponents, which is the bias the gate exposed.
+
+**Sweep** (`lr-gate` stage, 0.5B tokens per run, seed 0, all scored in fp32):
+
+| Shape | Non-embedding params | LRs |
+| --- | ---: | --- |
+| `d768-L6` | 37.8M | `2.4e-3` (adds to the gate's `3e-4`, `6e-4`, `1.2e-3`) |
+| `d768-L12` | 75.5M | `6e-4`, `1.2e-3`, `2.4e-3` |
+| `d768-L18` | 113.3M | `6e-4`, `1.2e-3`, `2.4e-3` |
+| `d768-L30` (the 214M shape) | 188.8M | `6e-4`, `1.2e-3`, `2.4e-3` |
+
+**Selection rule** (fixed before the sweep runs):
+
+1. Each shape uses the LR with the lowest validation CE at 0.5B tokens.
+2. If that LR is the highest one swept for the shape, add one run at `2x` that
+   LR and pick again. Do not extend a second time; report a best LR that is
+   still at the edge.
+3. Study arms take their shape's selected LR. Shapes outside the sweep (the
+   depth-vs-width arms, 70.8M and 74.3M) take the LR of the swept shape
+   nearest in non-embedding params, which is L12.
+4. The `study` stage enforces this: it refuses any run whose LR is more than
+   `0.02` nats behind the best gate row of its shape (or of the nearest swept
+   shape). It reads `lr-gate.json` and `lr-sweep.json`.
+5. The L30 runs do not enter the fit. They measure how far `6e-4`, the held-out
+   214M run's LR, is from the best LR at that shape. The report states that gap
+   next to prediction 2 either way.
+
+The L6 rows from the gate were scored with TF32 matmuls; the new L6 run is
+scored in fp32. If L6's best two LRs are within `0.005` nats, the report flags
+that comparison as inside the scoring difference.
+
+**Compute:** 10 runs. The estimate at the 430 TFLOP/s planning assumption is
+3.3 B200-hours; at measured throughput (L6 about 700, the 214M run about 520
+TFLOP/s) it is about 2 to 2.5 B200-hours plus container start-up. The worst
+case, if every container runs to its timeout, is about 10 B200-hours.

@@ -43,8 +43,11 @@ MAX_ARM_TIMEOUT_SECONDS = 5 * 3600
 ARM_TIMEOUT_SLACK_SECONDS = 20 * 60
 # Leaves room under the shared account's GPU quota for other work.
 MAX_CONCURRENT_ARMS = 4
-LR_GATE_RESULT = REPO_ROOT / "docs/results/scaling-study/lr-gate.json"
-# The run card's pre-registered stop rule for the LR gate.
+LR_GATE_RESULTS = (
+    REPO_ROOT / "docs/results/scaling-study/lr-gate.json",
+    REPO_ROOT / "docs/results/scaling-study/lr-sweep.json",
+)
+# The run card's pre-registered stop rule for the LR gate, applied per shape.
 LR_GATE_MAX_GAP_NATS = 0.02
 ARM_BUDGET_EXCEEDED_EXIT = 3
 HELDOUT_TIMEOUT_SECONDS = 30 * 60
@@ -135,7 +138,7 @@ def launch(argv: list[str] | None = None) -> int:
         )
         arms = () if with_heldout else plan.arms_for(args.stage, tuple(args.arm))
         if args.stage == "study":
-            _check_lr_gate(arms, LR_GATE_RESULT)
+            _check_lr_gate(arms, LR_GATE_RESULTS)
         usd_per_hour = float(base_payload["runtime"]["gpu_profiles"][STUDY_GPU]["usd_per_hour"])
         timeouts = {
             arm.arm: arm_timeout_seconds(arm, assumed_tflops=args.assumed_tflops) for arm in arms
@@ -257,24 +260,37 @@ def launch(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _check_lr_gate(arms: tuple[StudyArm, ...], gate_result: Path) -> None:
-    """Refuse study arms whose LR the LR-gate rows put past the stop rule."""
-    if not gate_result.is_file():
-        raise ValueError(f"the study stage needs the LR-gate result: {gate_result}")
-    gate = json.loads(gate_result.read_text(encoding="utf-8"))
-    val_ce_by_lr = {
-        float(row["learning_rate"]): float(row["val_ce"])
-        for outcome in gate["outcomes"].values()
-        for row in outcome["rows"]
-    }
-    best = min(val_ce_by_lr.values())
+def _check_lr_gate(arms: tuple[StudyArm, ...], gate_results: tuple[Path, ...]) -> None:
+    """Refuse study runs whose LR the LR-gate rows put past the stop rule.
+
+    Each run is judged against the gate rows of its own shape. A shape the gate
+    did not sweep uses the swept shape nearest in non-embedding params.
+    """
+    rows = []
+    for gate_result in gate_results:
+        if not gate_result.is_file():
+            raise ValueError(f"the study stage needs the LR-gate result: {gate_result}")
+        gate = json.loads(gate_result.read_text(encoding="utf-8"))
+        rows += [row for outcome in gate["outcomes"].values() for row in outcome["rows"]]
+    val_ce_by_shape: dict[str, dict[float, float]] = {}
+    params_by_shape: dict[str, int] = {}
+    for row in rows:
+        val_ce_by_shape.setdefault(row["shape"], {})[float(row["learning_rate"])] = float(
+            row["val_ce"]
+        )
+        params_by_shape[row["shape"]] = int(row["non_embedding_params"])
     for arm in arms:
         for run in arm.runs:
-            gap = val_ce_by_lr.get(run.learning_rate, float("inf")) - best
+            shape = min(
+                params_by_shape,
+                key=lambda swept: abs(params_by_shape[swept] - run.non_embedding_params),
+            )
+            val_ce_by_lr = val_ce_by_shape[shape]
+            gap = val_ce_by_lr.get(run.learning_rate, float("inf")) - min(val_ce_by_lr.values())
             if gap > LR_GATE_MAX_GAP_NATS:
                 raise ValueError(
                     f"{arm.arm}/{run.run}: LR {run.learning_rate:g} is {gap:.3f} nats worse "
-                    f"than the best LR-gate row in {gate_result}; the stop rule is "
+                    f"than the best {shape} LR-gate row; the stop rule is "
                     f"{LR_GATE_MAX_GAP_NATS} nats, so the LR decision goes back to Adam"
                 )
 
