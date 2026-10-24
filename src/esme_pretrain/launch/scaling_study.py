@@ -118,6 +118,8 @@ def launch(argv: list[str] | None = None) -> int:
         study_payload = json.loads(args.config.read_text(encoding="utf-8"))
         base_payload = json.loads(Path(study_payload["base_config"]).read_text(encoding="utf-8"))
         with_heldout = args.stage == "heldout"
+        if plan.heldout["volume"] != HELDOUT_VOLUME:
+            raise ValueError(f"heldout volume {plan.heldout['volume']!r} is not {HELDOUT_VOLUME!r}")
         prediction = (
             _written_prediction(
                 args.prediction,
@@ -180,6 +182,21 @@ def launch(argv: list[str] | None = None) -> int:
     if modal is None:
         print("scaling study failed: modal is not installed", file=sys.stderr)
         return 2
+
+    if with_heldout:
+        checkpoint = plan.heldout["checkpoint"]
+        listed = {
+            entry.path
+            for entry in modal.Volume.from_name(HELDOUT_VOLUME).listdir(
+                str(Path(checkpoint).parent)
+            )
+        }
+        if checkpoint not in listed:
+            print(
+                f"scaling study failed: {HELDOUT_VOLUME}:{checkpoint} does not exist",
+                file=sys.stderr,
+            )
+            return 2
 
     study_run_id = f"{args.stage}-{report['commit'][:7]}-{time.strftime('%Y%m%dT%H%M%S')}"
     params = {"study_run_id": study_run_id, "commit": report["commit"], "prediction": prediction}
@@ -394,9 +411,18 @@ def eval_heldout_body(
 
     plan = study_plan_from_payloads(study_payload, base_payload)
     checkpoint = Path("/accepted") / plan.heldout["checkpoint"]
-    model = load_pretrain_checkpoint(checkpoint).model.config
+    loaded = load_pretrain_checkpoint(checkpoint)
+    model = loaded.model.config
     if model != BackboneConfig.from_dict(base_payload["model"]):
         raise ValueError(f"{checkpoint} is not the base config's model: {model}")
+    training = base_payload["optimizer"]["training"]
+    tokens_per_step = training["micro_batch_size"] * training["grad_accum_steps"]
+    trained_tokens = loaded.step * tokens_per_step * model.context_length
+    if trained_tokens != int(plan.heldout["tokens"]):
+        raise ValueError(
+            f"{checkpoint} stopped at step {loaded.step} ({trained_tokens} tokens); "
+            f"the held-out point is {plan.heldout['tokens']} tokens"
+        )
     batches = _study_validation(
         plan, _stage_shards(), vocab_size=model.vocab_size, context_length=model.context_length
     )
