@@ -83,12 +83,28 @@ back to Adam.
 
 - Form: `L(N, D) = E + A / N^alpha + B / D^beta` (Hoffmann et al. 2022,
   approach 3), with N = non-embedding params and D = training tokens.
-- Fit: Huber loss (`delta = 1e-3`) on `log L`, L-BFGS from a grid of
-  initializations, best fit kept. Besiroglu et al. (2024) showed that this
-  approach is sensitive to optimizer details and reported uncertainty, so the
-  fit script and its settings are committed before the study runs.
-- Uncertainty: bootstrap over the 12 fit points (1,000 resamples) gives a
-  90 percent interval for the 214M prediction.
+- Fit: Huber loss (`delta = 1e-3`) on `log L`, minimized with L-BFGS (float64)
+  in `src/esme_pretrain/study/scaling_law.py`. The solver works on centered
+  `log N` and `log D` and divides the loss by `delta^2`. Both change the
+  conditioning, not the model or the optimum. Without them, L-BFGS stopped
+  early in a flat valley on synthetic data.
+- Initialization: the Hoffmann grid (4,500 starts). All starts run 200 L-BFGS
+  iterations as one batched problem, then the 4 best run alone to convergence,
+  and the lowest objective wins. The batched screen is a heuristic. It found the
+  same optimum as screens keeping 8 and 32 candidates on 6 synthetic datasets.
+  Besiroglu et al. (2024) showed this approach is sensitive to optimizer
+  details, which is why these settings are fixed here before the study runs.
+- Uncertainty: bootstrap over the 12 fit points (1,000 resamples, seed 0) gives
+  a 90 percent interval for the 214M prediction. Each resample refits from the
+  4 polished full-data solutions, not the full grid. A resample whose optimum
+  lies in a basin the full data never reached could be missed.
+- Check: on noiseless synthetic data from known parameters on this grid, the
+  fit recovers each parameter to 1e-8 and the 214M prediction to 5e-12 nats
+  (`tests/test_scaling_law.py`). With noise `sigma = 0.003`, the 90 percent
+  interval covered the true value in 9 of 10 noise seeds.
+- Command: `esme-pretrain scaling-fit --points <points.json>
+  --predict-non-embedding-params 188794368 --predict-tokens 10229514240
+  --output <fit.json>`.
 - The fit uses no 214M data. The 214M actual value is read only after the
   prediction is written to `docs/results/`.
 
@@ -130,26 +146,27 @@ That is about the compute of the original 214M run (`1.3e19`). Arms run in
 parallel on up to 4 B200s under the shared account quota. The wall time is
 about 3.5 hours, set by the L18 main run.
 
-## Engineering Before Approval (no spend)
+## Infrastructure (built, no spend)
 
-1. Study config: every arm's shape, token budget, branch points, seed, and LR.
-2. Cooldown branches. A run starts from a checkpoint's weights, optimizer
-   state, and data offset under a new schedule. It refuses unless the fork step
-   is in the stable phase of both schedules at the same LR, so a branch can
-   never hide schedule drift. The main run saves checkpoints at the exact
-   branch steps.
-3. Shard checks. `ShardBatchLoader` users verify the manifest's vocab and
-   tokenizer hash against the model and run.
-4. Validation from shards. The first 10M validation tokens come from shards,
-   and the loader refuses unless they hash to `1e1bb2aa...`.
-5. Shard staging. Each container copies the shard set from the volume to local
-   disk before training, because the shuffled reads are random.
-6. Study runner on Modal. Arms launch detached, each arm's results go to the
-   volume as they finish, at most 4 GPUs at a time, with a spend cap.
-7. Fit script. Its test must recover known parameters from synthetic data.
-8. Data. About 5B train tokens and 10M validation tokens pre-tokenized locally
-   (CPU, free) and uploaded to a study volume.
-9. A CPU rehearsal of one full arm (main run, branch, eval) on a tiny model.
+- `configs/scaling_study.json`: every arm's shape, token budget, branch points,
+  seed, and LR. `study/plan.py` expands it into runs and refuses any branch
+  that forks outside the main run's peak-LR phase.
+- `PretrainConfig.branch_from`: a branch starts from a checkpoint's weights,
+  optimizer state, and data offset. It may change only `max_steps` and
+  `decay_fraction`. A CPU test shows a branch equals a from-scratch run of its
+  schedule bit for bit.
+- `ShardBatchLoader` requires the model's vocab and the tokenizer's sha256.
+  `fixed_validation_batches` refuses validation tokens that do not hash to
+  `1e1bb2aa...`.
+- `launch/scaling_study.py`: stages run separately (`smoke`, `lr-gate`,
+  `study`). Each arm gets its own B200 container, with a timeout of 2x its
+  FLOPs estimate plus 20 minutes (at most 5 hours). Containers copy the shards
+  to local disk. At most 4 arms run at once. Rows go to the volume as runs
+  finish, and the app runs detached. The study stage also scores the accepted
+  214M checkpoint on the same batches, in the same fp32 path. `--check-only`
+  prices a stage.
+- `tests/test_scaling_study.py` trains a tiny arm (main and branch) end to end
+  on CPU, scores it, and writes its rows.
 
 ## Artifacts
 
