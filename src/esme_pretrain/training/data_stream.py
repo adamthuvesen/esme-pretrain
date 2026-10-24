@@ -6,10 +6,11 @@ context windows, and prefetches pinned CPU batches for non-blocking GPU copies.
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import queue
 import threading
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -106,53 +107,85 @@ class StreamingBatchLoader:
     def __iter__(self) -> Iterator[Batch]:
         window = self.context_length + 1
         tokens_per_batch = window * self.batch_size
-        batch_queue: queue.Queue[torch.Tensor | object] = queue.Queue(maxsize=self.prefetch_batches)
-        sentinel = object()
-        error_box: list[BaseException] = []
-        stop = threading.Event()
         skip_tokens = self.skip_tokens
 
-        def producer() -> None:
-            try:
-                source = self._tokens
-                # Skip already-consumed tokens on the producer side (C-level islice),
-                # so resume fast-forwards the deterministic stream without touching the
-                # GPU. Counting in tokens keeps the skip correct across batch sizes.
-                if skip_tokens:
-                    source = itertools.islice(iter(source), skip_tokens, None)
-                batches = batch_token_windows(source, window=window, batch_size=self.batch_size)
-                for cpu_batch in batches:
-                    if stop.is_set():
-                        break
-                    if self.pin_memory:
-                        cpu_batch = cpu_batch.pin_memory()
-                    batch_queue.put(cpu_batch)
-            except BaseException as error:  # noqa: BLE001 - surfaced to the consumer below
-                error_box.append(error)
-            finally:
-                batch_queue.put(sentinel)
+        def cpu_batches() -> Iterator[torch.Tensor]:
+            source = self._tokens
+            # Skip already-consumed tokens on the producer side (C-level islice),
+            # so resume fast-forwards the deterministic stream without touching the
+            # GPU. Counting in tokens keeps the skip correct across batch sizes.
+            if skip_tokens:
+                source = itertools.islice(iter(source), skip_tokens, None)
+            return batch_token_windows(source, window=window, batch_size=self.batch_size)
 
-        worker = threading.Thread(target=producer, name="token-prefetch", daemon=True)
-        worker.start()
+        with contextlib.closing(
+            prefetch_device_batches(
+                cpu_batches,
+                device=self.device,
+                pin_memory=self.pin_memory,
+                prefetch_batches=self.prefetch_batches,
+                thread_name="token-prefetch",
+            )
+        ) as batches:
+            for batch in batches:
+                self.tokens_yielded += tokens_per_batch
+                yield batch
+
+
+def prefetch_device_batches(
+    make_cpu_batches: Callable[[], Iterable[torch.Tensor]],
+    *,
+    device: torch.device,
+    pin_memory: bool,
+    prefetch_batches: int,
+    thread_name: str,
+) -> Iterator[Batch]:
+    """Build ``[batch, context + 1]`` CPU tensors on a background thread and yield them
+    on ``device`` as :class:`Batch`.
+
+    ``make_cpu_batches`` runs on the producer thread, so any skip or file seek it does
+    stays off the consumer. The bounded queue holds at most ``prefetch_batches``
+    batches. A producer error is raised to the consumer after the batches before it.
+    Closing the returned generator stops the producer and drains the queue.
+    """
+    batch_queue: queue.Queue[torch.Tensor | object] = queue.Queue(maxsize=prefetch_batches)
+    sentinel = object()
+    error_box: list[BaseException] = []
+    stop = threading.Event()
+
+    def producer() -> None:
+        try:
+            for cpu_batch in make_cpu_batches():
+                if stop.is_set():
+                    break
+                if pin_memory:
+                    cpu_batch = cpu_batch.pin_memory()
+                batch_queue.put(cpu_batch)
+        except BaseException as error:  # noqa: BLE001 - surfaced to the consumer below
+            error_box.append(error)
+        finally:
+            batch_queue.put(sentinel)
+
+    worker = threading.Thread(target=producer, name=thread_name, daemon=True)
+    worker.start()
+    try:
+        while True:
+            item = batch_queue.get()
+            if item is sentinel:
+                break
+            cpu_batch = item  # type: ignore[assignment]
+            batch = cpu_batch.to(device, non_blocking=pin_memory)
+            yield Batch(input_ids=batch[:, :-1], targets=batch[:, 1:])
+        if error_box:
+            raise error_box[0]
+    finally:
+        stop.set()
+        # Drain so a blocked producer can put its sentinel and exit cleanly.
         try:
             while True:
-                item = batch_queue.get()
-                if item is sentinel:
-                    break
-                cpu_batch = item  # type: ignore[assignment]
-                batch = cpu_batch.to(self.device, non_blocking=self.pin_memory)
-                self.tokens_yielded += tokens_per_batch
-                yield Batch(input_ids=batch[:, :-1], targets=batch[:, 1:])
-            if error_box:
-                raise error_box[0]
-        finally:
-            stop.set()
-            # Drain so a blocked producer can put its sentinel and exit cleanly.
-            try:
-                while True:
-                    batch_queue.get_nowait()
-            except queue.Empty:
-                pass
+                batch_queue.get_nowait()
+        except queue.Empty:
+            pass
 
 
 def synthetic_token_stream(

@@ -5,6 +5,7 @@ import argparse
 from esme_pretrain import __version__
 from esme_pretrain.cli.baselines import add_baseline_parsers
 from esme_pretrain.cli.postrun import add_postrun_parsers
+from esme_pretrain.cli.pretokenize import add_pretokenize_parser
 from esme_pretrain.cli.pretrain import add_pretrain_parser
 from esme_pretrain.cli.status import add_status_parser, handle_status
 
@@ -19,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_status_parser(subparsers)
     add_pretrain_parser(subparsers)
     add_postrun_parsers(subparsers)
+    add_pretokenize_parser(subparsers)
     add_baseline_parsers(subparsers)
 
     return parser
