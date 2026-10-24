@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from esme_pretrain.cli.study import fit_settings
 from esme_pretrain.data.token_shards import write_token_shards
 from esme_pretrain.launch import scaling_study
 from esme_pretrain.study.arm_training import study_validation_batches, train_study_arm
@@ -268,7 +269,12 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
 
     # A fit written for any other (N, D) than the held-out 214M point is refused.
     prediction = tmp_path / "fit.json"
-    target = {"non_embedding_params": 188794368, "tokens": 10229514240, "val_ce": 2.8}
+    target = {
+        "non_embedding_params": 188794368,
+        "tokens": 10229514240,
+        "val_ce": 2.8,
+        "interval": 0.9,
+    }
     prediction.write_text(json.dumps({"prediction": {**target, "tokens": 5_000_000_000}}))
     args = ["--stage", "heldout", "--prediction", str(prediction), "--spend-cap-usd", "20"]
     code = scaling_study.launch([*args, "--check-only"])
@@ -289,12 +295,20 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
     ]
     assert len(points) == 12
     short_fit = [point for point in points if not point["arm"].startswith("L18/")]
-    prediction.write_text(json.dumps({"prediction": target, "points": short_fit}))
+    settings = fit_settings(resamples=1000, seed=0)
+    fit = {"prediction": target, "points": points, "settings": settings}
+    prediction.write_text(json.dumps({**fit, "points": short_fit}))
     code = scaling_study.launch([*args, "--check-only"])
     assert code == 2
     assert "not fit on the pre-registered 12 points" in capsys.readouterr().err
 
-    prediction.write_text(json.dumps({"prediction": target, "points": points}))
+    # So is a rehearsal fit with fewer bootstrap resamples than pre-registered.
+    prediction.write_text(json.dumps({**fit, "settings": {**settings, "resamples": 1}}))
+    code = scaling_study.launch([*args, "--check-only"])
+    assert code == 2
+    assert "not fit with the pre-registered settings" in capsys.readouterr().err
+
+    prediction.write_text(json.dumps(fit))
     code = scaling_study.launch([*args, "--check-only"])
     report = json.loads(capsys.readouterr().out)
     assert code == 0

@@ -17,6 +17,9 @@ from esme_pretrain.study.scaling_law import (
 )
 
 BOOTSTRAP_INTERVAL = 0.9
+# The run card's pre-registered bootstrap.
+PREREGISTERED_RESAMPLES = 1000
+PREREGISTERED_SEED = 0
 LOSS_POINT_FIELDS = ("arm", "non_embedding_params", "tokens", "val_ce")
 
 
@@ -48,10 +51,16 @@ def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Training tokens of the held-out prediction.",
     )
     scaling_fit.add_argument(
-        "--resamples", default=1000, type=int, help="Bootstrap resamples. Defaults to 1000."
+        "--resamples",
+        default=PREREGISTERED_RESAMPLES,
+        type=int,
+        help=f"Bootstrap resamples. Defaults to {PREREGISTERED_RESAMPLES}.",
     )
     scaling_fit.add_argument(
-        "--seed", default=0, type=int, help="Bootstrap random seed. Defaults to 0."
+        "--seed",
+        default=PREREGISTERED_SEED,
+        type=int,
+        help=f"Bootstrap random seed. Defaults to {PREREGISTERED_SEED}.",
     )
     scaling_fit.add_argument("--output", required=True, type=Path, help="Output fit JSON.")
     scaling_fit.add_argument("--json", action="store_true", help="Emit machine-readable result.")
@@ -96,16 +105,7 @@ def handle_scaling_fit(args: argparse.Namespace) -> int:
             "lower": bootstrap.lower,
             "upper": bootstrap.upper,
         },
-        "settings": {
-            "form": "L(N, D) = E + A / N^alpha + B / D^beta",
-            "huber_delta": DEFAULT_HUBER_DELTA,
-            "initialization_grid": initialization_grid(),
-            "screen_iterations": SCREEN_ITERATIONS,
-            "polished_candidates": POLISHED_CANDIDATES,
-            "polish_iterations": POLISH_ITERATIONS,
-            "resamples": bootstrap.resamples,
-            "seed": args.seed,
-        },
+        "settings": fit_settings(resamples=bootstrap.resamples, seed=args.seed),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -120,6 +120,19 @@ def handle_scaling_fit(args: argparse.Namespace) -> int:
             f"({bootstrap.interval:.0%} interval {bootstrap.lower:.4f} to {bootstrap.upper:.4f})"
         )
     return 0
+
+
+def fit_settings(*, resamples: int, seed: int) -> dict[str, Any]:
+    return {
+        "form": "L(N, D) = E + A / N^alpha + B / D^beta",
+        "huber_delta": DEFAULT_HUBER_DELTA,
+        "initialization_grid": initialization_grid(),
+        "screen_iterations": SCREEN_ITERATIONS,
+        "polished_candidates": POLISHED_CANDIDATES,
+        "polish_iterations": POLISH_ITERATIONS,
+        "resamples": resamples,
+        "seed": seed,
+    }
 
 
 def load_loss_points(path: Path) -> list[LossPoint]:

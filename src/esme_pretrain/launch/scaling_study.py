@@ -291,6 +291,12 @@ def _written_prediction(
     """The fit's prediction, refused unless it is the pre-registered fit of the 214M point."""
     if path is None or not path.is_file():
         raise ValueError("the heldout stage needs --prediction, the written scaling-fit output")
+    from esme_pretrain.cli.study import (
+        BOOTSTRAP_INTERVAL,
+        PREREGISTERED_RESAMPLES,
+        PREREGISTERED_SEED,
+        fit_settings,
+    )
     from esme_pretrain.postrun.eval_checkpoints import file_sha256
 
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -299,6 +305,14 @@ def _written_prediction(
         raise ValueError(
             f"{path} predicts N={target['non_embedding_params']}, D={target['tokens']}; "
             f"the held-out point is N={non_embedding_params}, D={tokens}"
+        )
+    preregistered = json.loads(
+        json.dumps(fit_settings(resamples=PREREGISTERED_RESAMPLES, seed=PREREGISTERED_SEED))
+    )
+    if payload.get("settings") != preregistered or target["interval"] != BOOTSTRAP_INTERVAL:
+        raise ValueError(
+            f"{path} was not fit with the pre-registered settings: {preregistered}, "
+            f"interval {BOOTSTRAP_INTERVAL}"
         )
     written = [
         (point["arm"], point["non_embedding_params"], point["tokens"])
