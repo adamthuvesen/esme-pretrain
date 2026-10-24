@@ -37,6 +37,7 @@ from esme_pretrain.training.runtime import (
     resolve_device,
     resolve_dtype,
     set_seed,
+    wsd_decay_start,
     wsd_lr,
 )
 
@@ -54,6 +55,8 @@ OPTIMIZER_SCHEDULE_FIELDS = (
     "beta2",
     "grad_clip",
 )
+# A cooldown branch may change only where its decay happens.
+BRANCH_SCHEDULE_FIELDS = ("max_steps", "decay_fraction")
 
 
 @dataclass(frozen=True)
@@ -79,8 +82,12 @@ class PretrainConfig:
     eval_interval: int = 0  # 0 disables periodic eval
     eval_batches: int = 0
     checkpoint_interval: int = 0  # 0 -> only the final checkpoint
+    checkpoint_steps: tuple[int, ...] = ()  # extra completed steps to checkpoint at
     output_dir: Path = Path("runs/pretrain")
     resume_from: Path | None = None
+    # Start a cooldown branch from a checkpoint's weights, optimizer, and data offset
+    # under this config's schedule (see _check_branch_schedule).
+    branch_from: Path | None = None
 
     def __post_init__(self) -> None:
         if self.max_steps < 1:
@@ -101,6 +108,10 @@ class PretrainConfig:
             raise TrainerError("grad_clip must be positive")
         if self.log_interval < 1:
             raise TrainerError("log_interval must be at least 1")
+        if self.resume_from is not None and self.branch_from is not None:
+            raise TrainerError("resume_from and branch_from are mutually exclusive")
+        if any(not 1 <= step <= self.max_steps for step in self.checkpoint_steps):
+            raise TrainerError("checkpoint_steps must be in [1, max_steps]")
         for name in ("eval_interval", "eval_batches", "checkpoint_interval"):
             if getattr(self, name) < 0:
                 raise TrainerError(f"{name} must be non-negative (0 disables)")
@@ -222,6 +233,39 @@ def _close_iterator(iterator: Any) -> None:
         close()
 
 
+def _check_branch_schedule(
+    recorded: dict[str, Any], config: PretrainConfig, *, fork_step: int
+) -> None:
+    """Refuse a branch unless both schedules agree on every step before the fork.
+
+    The branch may move the decay (``max_steps``, ``decay_fraction``) but nothing
+    else, and the fork must sit after warmup and before either schedule decays. Then
+    the checkpoint's past is exactly the past the branch's own schedule would have
+    produced, so the branch equals a from-scratch run of its schedule.
+    """
+    changed = {
+        name: (recorded.get(name), getattr(config, name))
+        for name in OPTIMIZER_SCHEDULE_FIELDS
+        if name not in BRANCH_SCHEDULE_FIELDS and recorded.get(name) != getattr(config, name)
+    }
+    if changed:
+        raise TrainerError(
+            f"branch may change only {BRANCH_SCHEDULE_FIELDS}; changed (checkpoint, branch): "
+            f"{changed}"
+        )
+    checkpoint_decay_start = wsd_decay_start(
+        max_steps=int(recorded["max_steps"]), decay_fraction=float(recorded["decay_fraction"])
+    )
+    branch_decay_start = wsd_decay_start(
+        max_steps=config.max_steps, decay_fraction=config.decay_fraction
+    )
+    if not config.warmup_steps <= fork_step <= min(checkpoint_decay_start, branch_decay_start):
+        raise TrainerError(
+            f"branch fork step {fork_step} is outside the shared peak-LR phase "
+            f"[{config.warmup_steps}, {min(checkpoint_decay_start, branch_decay_start)}]"
+        )
+
+
 def take_fixed_eval_batches(loader: Any, batches: int) -> list[Batch]:
     """Read the in-loop validation batches once, so every eval scores the same tokens.
 
@@ -277,8 +321,9 @@ def run_pretrain(
     start_step = 0
     resume_optimizer_state: dict[str, Any] | None = None
     resume_data_offset = 0
-    if config.resume_from is not None:
-        loaded = load_pretrain_checkpoint(config.resume_from, map_location=device)
+    start_checkpoint = config.resume_from or config.branch_from
+    if start_checkpoint is not None:
+        loaded = load_pretrain_checkpoint(start_checkpoint, map_location=device)
         if loaded.model.config != config.model:
             raise TrainerError("resume checkpoint config does not match requested pretrain config")
         if loaded.optimizer_schedule is None:
@@ -287,16 +332,19 @@ def run_pretrain(
                 "LR schedule cannot be checked; resume from a checkpoint written by "
                 "run_pretrain"
             )
-        drifted = {
-            name: (loaded.optimizer_schedule.get(name), value)
-            for name, value in config.optimizer_schedule().items()
-            if loaded.optimizer_schedule.get(name) != value
-        }
-        if drifted:
-            raise TrainerError(
-                "resume optimizer schedule does not match the checkpoint "
-                f"(checkpoint, requested): {drifted}"
-            )
+        if config.branch_from is not None:
+            _check_branch_schedule(loaded.optimizer_schedule, config, fork_step=loaded.step)
+        else:
+            drifted = {
+                name: (loaded.optimizer_schedule.get(name), value)
+                for name, value in config.optimizer_schedule().items()
+                if loaded.optimizer_schedule.get(name) != value
+            }
+            if drifted:
+                raise TrainerError(
+                    "resume optimizer schedule does not match the checkpoint "
+                    f"(checkpoint, requested): {drifted}"
+                )
         model: torch.nn.Module = loaded.model.to(device)
         start_step = loaded.step
         resume_optimizer_state = loaded.optimizer_state
@@ -316,8 +364,8 @@ def run_pretrain(
                 )
             train_loader.skip_tokens = resume_data_offset
         notes.append(
-            f"resumed from {config.resume_from} at step {start_step} "
-            f"(stream offset {resume_data_offset} tokens)"
+            f"{'branched' if config.branch_from is not None else 'resumed'} from "
+            f"{start_checkpoint} at step {start_step} (stream offset {resume_data_offset} tokens)"
         )
     else:
         model = DenseBackbone(config.model).to(device)
@@ -448,7 +496,7 @@ def run_pretrain(
                 val_last = val
                 logger.log(completed_step, {"val_loss": val})
 
-        should_checkpoint = (
+        should_checkpoint = completed_step in config.checkpoint_steps or (
             config.checkpoint_interval > 0 and completed_step % config.checkpoint_interval == 0
         )
         if should_checkpoint:

@@ -49,6 +49,11 @@ def autocast_context(device: torch.device, dtype: torch.dtype) -> Any:
     return nullcontext()
 
 
+def wsd_decay_start(*, max_steps: int, decay_fraction: float) -> int:
+    """First step of the WSD decay; steps before it (after warmup) run at peak LR."""
+    return max_steps - round(decay_fraction * max_steps)
+
+
 def wsd_lr(
     step: int,
     *,
@@ -66,8 +71,8 @@ def wsd_lr(
         return max_lr * (step + 1) / warmup_steps
     if step >= max_steps:
         return min_lr
-    decay_steps = round(decay_fraction * max_steps)
-    decay_start = max_steps - decay_steps
+    decay_start = wsd_decay_start(max_steps=max_steps, decay_fraction=decay_fraction)
+    decay_steps = max_steps - decay_start
     if decay_steps == 0 or step < decay_start:
         return max_lr
     # +1 so the last optimizer step (max_steps - 1) runs at exactly min_lr.
