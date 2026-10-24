@@ -315,6 +315,20 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
     assert report["arms"] == [] and report["heldout_eval"] is True
     assert report["prediction"]["val_ce"] == 2.8
 
+    # A valid fit still reveals nothing until it is committed: this one is outside
+    # the repository, so the real launch refuses before renting a GPU.
+    code = scaling_study.launch([*args, "--approved"])
+    assert code == 2
+    assert "before the held-out eval reveals the 214M loss" in capsys.readouterr().err
+
+
+def test_committed_in_head_matches_the_tracked_blob(tmp_path: Path) -> None:
+    tracked = scaling_study.REPO_ROOT / "configs" / "scaling_study.json"
+    assert scaling_study._committed_in_head(tracked)
+    copy = tmp_path / "scaling_study.json"
+    copy.write_bytes(tracked.read_bytes())
+    assert not scaling_study._committed_in_head(copy)
+
 
 def test_study_stage_no_longer_scores_the_heldout_checkpoint(
     tmp_path: Path, monkeypatch, capsys

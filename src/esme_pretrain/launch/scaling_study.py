@@ -17,6 +17,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -176,6 +177,13 @@ def launch(argv: list[str] | None = None) -> int:
     if not args.approved:
         print("scaling study refused: pass --approved to rent GPUs", file=sys.stderr)
         return 2
+    if with_heldout and not _committed_in_head(args.prediction):
+        print(
+            f"scaling study refused: commit {args.prediction} before the held-out eval "
+            "reveals the 214M loss",
+            file=sys.stderr,
+        )
+        return 2
     if report["dirty"]:
         print("scaling study refused: commit the working tree first", file=sys.stderr)
         return 2
@@ -269,6 +277,19 @@ def _check_lr_gate(arms: tuple[StudyArm, ...], gate_result: Path) -> None:
                     f"than the best LR-gate row in {gate_result}; the stop rule is "
                     f"{LR_GATE_MAX_GAP_NATS} nats, so the LR decision goes back to Adam"
                 )
+
+
+def _committed_in_head(path: Path) -> bool:
+    """True when ``path`` is a tracked file whose HEAD blob matches its contents."""
+    resolved = path.resolve()
+    if not resolved.is_relative_to(REPO_ROOT):
+        return False
+    head_blob = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "show", f"HEAD:{resolved.relative_to(REPO_ROOT)}"],
+        capture_output=True,
+        check=False,
+    )
+    return head_blob.returncode == 0 and head_blob.stdout == resolved.read_bytes()
 
 
 def _planned_fit_points(plan: StudyPlan) -> set[tuple[str, int, int]]:
