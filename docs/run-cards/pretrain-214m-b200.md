@@ -95,21 +95,32 @@ stream was exhausted. Accepted numbers, quoted here so they are citable from a
 fresh clone (run outputs are gitignored):
 
 - Train loss `10.5339` -> `2.7360` (min `2.5944`); training-time validation
-  loss `10.4642` -> `2.7426`; final grad norm `0.1215`.
+  loss `10.4642` -> `2.7426`; final grad norm `0.1215`. Caveat: this run's
+  in-loop eval read new validation batches at each eval instead of reusing one
+  fixed set (fixed after the run). Each point is a real held-out loss, but
+  points mix sampling noise into the trend. The post-run fixed-validation eval
+  below is the authoritative number.
 - Steady throughput `215,714` tokens/sec (peak `239,908`) on one B200; peak
   GPU memory `40.69` GB. The full series are plotted in the committed
   telemetry figures under `assets/`.
-- Post-run fixed-validation eval over `10,002,432` tokens: CE loss `2.7756`,
-  bits per byte `0.9001`, perplexity `16.05`. The independent baseline
-  harness measured `0.9012` bits per byte on its own FineWeb-Edu slice, an
-  agreement of about `0.001` across two code paths.
+- Post-run fixed-validation eval over `10,002,432` tokens and `44,478,593`
+  bytes: CE loss `2.7756`, bits per byte `0.9005`, perplexity `16.05`. The
+  independent baseline harness measured `0.9012` bits per byte on its own
+  FineWeb-Edu slice, an agreement of about `0.0007` across two code paths.
+- BPB correction (2026-10-24): the first post-run eval reported `0.9001`. It
+  counted a character split across tokens once per token, which over-counted
+  the bytes by `20,401` (`0.046` percent). The re-run scored the identical
+  token batches (same `token_batch_sha256` `1e1bb2aa...`) with the fixed byte
+  count. CE moved by `3e-7`, from a different torch version on MPS.
 
 Source artifacts: `run-summary.json`
 (sha256 `7ebf1b5aca34a89702348a7bd54637253d859692720aa869c37cd4fbcbc3571e`)
-and `base-eval.json`
-(sha256 `98f5479d502035006cceba11a5538dace1be6cebadd84c148cbb3ea67bd9b980`),
-both in the run directory above. The eval JSON records its device (`mps`) and
-the fixed-batch hash.
+and `base-eval-bpb-fix.json`
+(sha256 `cb6af9fa55fedfe4a6e81a93fd976c4ba4621ed20201926f67a6fb2889a40fdd`),
+both in the run directory above. The superseded `base-eval.json`
+(sha256 `98f5479d502035006cceba11a5538dace1be6cebadd84c148cbb3ea67bd9b980`)
+stays beside them. Each eval JSON records its device (`mps`) and the
+fixed-batch hash.
 
 Decoded qualitative samples can be produced from the accepted checkpoint
 without changing the accepted artifact set:

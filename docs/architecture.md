@@ -102,6 +102,34 @@ sampling, and export all build it from the same `BackboneConfig`.
    reference models on shared validation slices. The bundle is the only
    contract `llm-infer` consumes ([bundle-format.md](bundle-format.md)).
 
+## Training And Measurement Conventions
+
+These choices are deliberate, but a reader comparing runs needs to know them.
+
+- **Packing.** Documents are joined with `<eos>` and cut into fixed
+  `context_length + 1` windows. There is no document attention mask, so
+  attention crosses `<eos>` boundaries, as in GPT-2-style packing.
+- **Data order.** The train stream follows the dataset's streaming order with
+  no shuffle buffer. The WSD decay phase trains on the last 20 percent of that
+  order.
+- **Learning rate.** WSD: linear warmup, constant peak, then a cosine-shaped
+  decay over the final `decay_fraction` of steps. The last optimizer step runs
+  at exactly `min_lr`.
+- **In-loop validation.** The loop reads `eval_batches` validation batches once
+  at start and scores the same batches at every eval.
+- **Resume.** A checkpoint (format 3) records the optimizer schedule. Resume
+  refuses a run whose schedule differs (`max_steps`, LR, warmup, decay, weight
+  decay, betas, grad clip). Batch shape may change, because the data offset is
+  counted in tokens. Format 2 checkpoints, such as the accepted base, load for
+  eval and export but cannot be resumed.
+- **Bits per byte.** Each UTF-8 byte of a document is assigned to exactly one
+  token, so token byte counts sum to the document length. `<eos>` adds loss
+  but no bytes. The post-run eval and the baseline harness use the same rule.
+- **FLOPs and MFU.** FLOPs per token are `6N + 12 * layers * d_model * context`,
+  with the tied embedding counted once in `N` for the LM head matmul. The
+  attention term counts the full matrix, not the causal half, so MFU reads
+  slightly high.
+
 ## Model At A Glance
 
 - 213,960,192 parameters.

@@ -48,7 +48,7 @@ of 128, two epochs over 61,440 pairs), each pair two sequences capped at
 1,024 tokens, so the ceiling is about 252M token positions and the true count
 is well below it. That number is derived from the
 [committed config](https://github.com/adamthuvesen/esme-posttrain/blob/main/configs/esme-214m-chat-dpo.json)
-because nothing recorded it at run time. Section 11 returns to this.
+because nothing recorded it at run time. Section 9 returns to this.
 
 ## 1. Data and tokenizer
 
@@ -93,7 +93,7 @@ The run completed every step and stopped when the finite stream ran out
 ("data exhausted at step 26015"). Train loss went from 10.53 to 2.74,
 validation tracked it, and throughput held near 215,714 tokens/sec on one
 B200. The accepted numbers, including the post-run fixed-validation eval (CE
-2.7756, 0.9001 bits per byte over 10M validation tokens), are quoted with
+2.7756, 0.9005 bits per byte over 10M validation tokens), are quoted with
 artifact hashes in the run card's
 [Accepted Result](run-cards/pretrain-214m-b200.md) section, and the loss and
 throughput series are plotted in the committed
@@ -104,11 +104,15 @@ at plot time. No raw MFU measurement exists.
 Not everything survived. The acceptance eval and report were produced locally
 after the run and later lost; they were regenerated in July 2026 from the
 checkpoint, deterministically, and the regenerated bits per byte agreed with
-an independent measurement from the baseline harness to about 0.001. The raw
+an independent measurement from the baseline harness to about 0.001. A later
+code review found that this eval counted a character split across tokens once
+per token, which over-counted bytes by 0.046 percent. The October 2026 re-run
+scored the identical token batches with the fixed count: 0.9005, not 0.9001,
+and the agreement with the harness tightened to about 0.0007. The raw
 GPU-smoke records behind the B200 decision are gone for good (recreating them
 means renting three GPUs again), though the measured numbers live on in the
 committed config. Losing instrument readings while keeping the conclusions is
-survivable exactly once; section 11 makes it a rule instead of a habit.
+survivable exactly once; section 9 makes it a rule instead of a habit.
 
 ## 3. Is the base model any good?
 

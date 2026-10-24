@@ -83,6 +83,11 @@ Telemetry from the `pretrain_214m_b200` run, plotted from the run's
 
 ![Throughput and MFU stability over the run](assets/fig-pretrain-throughput-mfu.svg)
 
+In this run, each in-loop validation point scored different batches, so the
+validation curve carries some sampling noise. The loop now reuses one fixed
+set. The fixed post-run eval in the [run card](docs/run-cards/pretrain-214m-b200.md#accepted-result)
+is the authoritative number.
+
 ## What Is Here
 
 - FineWeb-Edu streaming with a deterministic document split.
@@ -136,6 +141,15 @@ start training.
 uv run esme-pretrain eval-checkpoints \
   --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
   --checkpoint <run-dir>/checkpoint.pt --eval-token-budget 10000000 \
+  --output <run-dir>/base-eval.json --json
+
+# Same eval from local copies of the corpus parquet files (no Hub streaming),
+# refusing to score unless the batches match a reference eval's hash
+uv run --extra baselines esme-pretrain eval-checkpoints \
+  --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
+  --checkpoint <run-dir>/checkpoint.pt --eval-token-budget 10000000 \
+  --corpus-parquet <dir>/000_00000.parquet --corpus-parquet <dir>/001_00000.parquet \
+  --expected-token-batch-sha256 <token_batch_sha256> \
   --output <run-dir>/base-eval.json --json
 
 # Turn an eval into an acceptance report
