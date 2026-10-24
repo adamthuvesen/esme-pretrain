@@ -172,13 +172,23 @@ def _param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str,
     ]
 
 
+def _loss_function(model: torch.nn.Module, z_loss_weight: float) -> Any:
+    def compute_loss(
+        input_ids: torch.Tensor, targets: torch.Tensor
+    ) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        return language_model_loss(model(input_ids), targets, z_loss_weight=z_loss_weight)
+
+    return compute_loss
+
+
 def _accumulate_gradients(
-    model: torch.nn.Module,
+    compute_loss: Any,
     train_iter: Any,
     config: PretrainConfig,
     autocast: Any,
-) -> tuple[float, dict[str, float]] | None:
-    component_sums: dict[str, float] = {}
+) -> dict[str, torch.Tensor] | None:
+    """Run one optimizer step's micro-batches; return device-resident step means."""
+    component_sums: dict[str, torch.Tensor] = {}
     for _ in range(config.grad_accum_steps):
         try:
             batch: Batch = next(train_iter)
@@ -188,12 +198,7 @@ def _accumulate_gradients(
         # in fp32 even though the model ran in bf16. backward() is outside autocast,
         # the standard placement.
         with autocast:
-            logits = model(batch.input_ids)
-            loss, components = language_model_loss(
-                logits,
-                batch.targets,
-                z_loss_weight=config.model.z_loss_weight,
-            )
+            loss, components = compute_loss(batch.input_ids, batch.targets)
         (loss / config.grad_accum_steps).backward()
         for name, value in components.items():
             component_sums[name] = component_sums.get(name, 0.0) + value
@@ -201,7 +206,7 @@ def _accumulate_gradients(
     step_components = {
         name: total / config.grad_accum_steps for name, total in component_sums.items()
     }
-    return step_components["total_loss"], step_components
+    return step_components
 
 
 def _data_offset_tokens(
@@ -307,7 +312,7 @@ def run_pretrain(
             if not hasattr(train_loader, "skip_tokens"):
                 raise TrainerError(
                     "resume_from carries a data offset but train_loader has no "
-                    "skip_tokens; pass a StreamingBatchLoader to resume the stream"
+                    "skip_tokens; pass a StreamingBatchLoader or ShardBatchLoader to resume"
                 )
             train_loader.skip_tokens = resume_data_offset
         notes.append(
@@ -318,10 +323,13 @@ def run_pretrain(
         model = DenseBackbone(config.model).to(device)
 
     model.train()
+    # Compile forward and loss as one graph, so the loss's fp32 upcast fuses into its
+    # reductions. The module stays eager for eval, checkpointing, and param groups.
+    compute_loss = _loss_function(model, config.model.z_loss_weight)
     compiled = False
     if config.use_compile:
         try:
-            model = torch.compile(model)  # type: ignore[assignment]
+            compute_loss = torch.compile(compute_loss)
             compiled = True
         except Exception as error:  # noqa: BLE001 - compile is best-effort headroom
             notes.append(f"torch.compile unavailable, ran eager: {error}")
@@ -357,6 +365,7 @@ def run_pretrain(
     final_step = start_step
     if is_cuda:
         torch.cuda.reset_peak_memory_stats(device)
+        torch.cuda.synchronize(device)
 
     for step in range(start_step, config.max_steps):
         learning_rate = wsd_lr(
@@ -370,26 +379,31 @@ def run_pretrain(
         for group in optimizer.param_groups:
             group["lr"] = learning_rate
 
-        if is_cuda:
-            torch.cuda.synchronize(device)
+        # The previous step, eval, and checkpoint all end synchronized, so the timer
+        # starts on an idle GPU.
         step_start = time.perf_counter()
 
         optimizer.zero_grad(set_to_none=True)
-        accumulated = _accumulate_gradients(model, train_iter, config, autocast)
-        if accumulated is None:
+        step_components = _accumulate_gradients(compute_loss, train_iter, config, autocast)
+        if step_components is None:
             optimizer.zero_grad(set_to_none=True)
             notes.append(
                 f"data exhausted at step {step}; stopped after {final_step} completed steps"
             )
             break
 
-        step_loss, components = accumulated
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+        # The step's one host read: loss, grad norm, and loss components together, so a
+        # non-finite step is refused before the optimizer applies it.
+        names = list(step_components)
+        values = torch.stack(
+            [grad_norm.float(), *(step_components[name].float() for name in names)]
+        ).tolist()
+        grad_norm_last = values[0]
+        components = dict(zip(names, values[1:], strict=True))
+        step_loss = components["total_loss"]
         if not math.isfinite(step_loss):
             raise RuntimeError(f"non-finite train loss at step {step}: {step_loss}")
-        grad_norm = torch.nn.utils.clip_grad_norm_(
-            model.parameters(), config.grad_clip, error_if_nonfinite=True
-        )
-        grad_norm_last = float(grad_norm)
         if not math.isfinite(grad_norm_last):
             raise RuntimeError(f"non-finite gradient norm at step {step}: {grad_norm_last}")
         optimizer.step()

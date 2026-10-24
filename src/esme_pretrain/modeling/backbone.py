@@ -126,9 +126,8 @@ class BackboneConfig:
 class GroupedQueryAttention(torch.nn.Module):
     """Causal grouped-query attention.
 
-    The implementation repeats K/V heads before SDPA rather than relying on a
-    version-specific ``enable_gqa`` flag, so CPU tests and pinned Modal torch use
-    the same code path.
+    SDPA's ``enable_gqa`` maps query head ``h`` to K/V head ``h // kv_repeat``, the
+    same grouping as ``repeat_interleave``, without materializing repeated K/V.
     """
 
     def __init__(self, config: BackboneConfig) -> None:
@@ -155,10 +154,9 @@ class GroupedQueryAttention(torch.nn.Module):
             query = self.q_norm(query)
             key = self.k_norm(key)
         query, key = apply_rope(query, key, cos, sin)
-        if self.kv_repeat != 1:
-            key = key.repeat_interleave(self.kv_repeat, dim=1)
-            value = value.repeat_interleave(self.kv_repeat, dim=1)
-        attention = F.scaled_dot_product_attention(query, key, value, is_causal=True)
+        attention = F.scaled_dot_product_attention(
+            query, key, value, is_causal=True, enable_gqa=self.kv_repeat != 1
+        )
         attention = attention.transpose(1, 2).reshape(batch, seq, self.heads * self.head_dim)
         return self.wo(attention)
 
@@ -236,32 +234,31 @@ def language_model_loss(
     *,
     z_loss_weight: float = 0.0,
     ignore_index: int = -100,
-) -> tuple[torch.Tensor, dict[str, float]]:
-    """Next-token cross-entropy plus optional z-loss on raw logits."""
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """Next-token cross-entropy plus optional z-loss on raw logits.
+
+    Components are detached device tensors, so a training step can read them once
+    instead of syncing the GPU per micro-batch. Masked means (not boolean indexing)
+    keep shapes static, so ``torch.compile`` can fuse the fp32 upcast into the
+    reductions instead of materializing an fp32 copy of the logits.
+    """
     raw_logits = logits.reshape(-1, logits.shape[-1]).float()
     flat_targets = targets.reshape(-1)
-    valid = flat_targets != ignore_index
+    valid = (flat_targets != ignore_index).to(raw_logits.dtype)
+    # A batch with no supervised positions yields a graph-connected zero loss.
+    target_count = valid.sum().clamp_min(1.0)
 
     log_z = torch.logsumexp(raw_logits, dim=-1)  # [N], the CE denominator
     # clamp_min(0) keeps gather in range for ignored positions; they are masked out.
     target_logits = raw_logits.gather(-1, flat_targets.clamp_min(0).unsqueeze(-1)).squeeze(-1)
-    negative_log_likelihood = (log_z - target_logits)[valid]
-    if negative_log_likelihood.numel() == 0:
-        # No supervised positions (degenerate batch): a graph-connected zero, and z-loss
-        # has nothing to penalize, so skip it (its mean over zero elements is NaN).
-        components = {"ce_loss": 0.0}
-        total = raw_logits.sum() * 0.0
-        components["total_loss"] = float(total.detach())
-        return total, components
-
-    cross_entropy = negative_log_likelihood.mean()
-    components = {"ce_loss": float(cross_entropy.detach())}
+    cross_entropy = ((log_z - target_logits) * valid).sum() / target_count
+    components = {"ce_loss": cross_entropy.detach()}
     total = cross_entropy
     if z_loss_weight > 0.0:
-        z_loss = z_loss_weight * (log_z[valid] ** 2).mean()
+        z_loss = z_loss_weight * ((log_z**2) * valid).sum() / target_count
         total = total + z_loss
-        components["z_loss"] = float(z_loss.detach())
-    components["total_loss"] = float(total.detach())
+        components["z_loss"] = z_loss.detach()
+    components["total_loss"] = total.detach()
     return total, components
 
 

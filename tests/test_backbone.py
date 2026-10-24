@@ -8,6 +8,7 @@ from esme_pretrain.modeling.backbone import (
     baseline_config,
     language_model_loss,
 )
+from esme_pretrain.modeling.layers import apply_rope, build_rope_cache
 from esme_pretrain.torch import torch
 
 
@@ -157,9 +158,43 @@ def test_z_loss_increases_total_loss() -> None:
     plain, plain_parts = language_model_loss(logits, targets, z_loss_weight=0.0)
     with_z, z_parts = language_model_loss(logits, targets, z_loss_weight=1e-2)
     assert "z_loss" not in plain_parts
-    assert z_parts["z_loss"] > 0.0
-    assert z_parts["total_loss"] > plain_parts["total_loss"]
-    assert plain_parts["ce_loss"] == pytest.approx(z_parts["ce_loss"], rel=1e-6)
+    assert z_parts["z_loss"].item() > 0.0
+    assert z_parts["total_loss"].item() > plain_parts["total_loss"].item()
+    assert plain_parts["ce_loss"].item() == pytest.approx(z_parts["ce_loss"].item(), rel=1e-6)
+
+
+def test_loss_with_no_supervised_positions_is_a_connected_zero() -> None:
+    logits = torch.randn(2, 3, 10, requires_grad=True)
+    targets = torch.full((2, 3), -100)
+    loss, parts = language_model_loss(logits, targets, z_loss_weight=1e-2)
+    loss.backward()
+    assert loss.item() == 0.0
+    assert parts["z_loss"].item() == 0.0
+    assert logits.grad is not None and torch.count_nonzero(logits.grad) == 0
+
+
+def test_native_gqa_matches_repeated_kv_heads() -> None:
+    # SDPA's enable_gqa must group query heads exactly like repeat_interleave
+    # (query head h reads K/V head h // repeat); a tiled mapping would silently
+    # attend to the wrong K/V heads.
+    torch.manual_seed(0)
+    config = _small_config(heads=4, kv_heads=2)
+    attention = DenseBackbone(config).blocks[0].attention
+    hidden = torch.randn(2, 8, config.embedding_dim)
+    cos, sin = build_rope_cache(8, config.head_dim, config.rope_theta, torch.device("cpu"))
+
+    batch, seq, _ = hidden.shape
+    query = attention.wq(hidden).view(batch, seq, 4, config.head_dim).transpose(1, 2)
+    key = attention.wk(hidden).view(batch, seq, 2, config.head_dim).transpose(1, 2)
+    value = attention.wv(hidden).view(batch, seq, 2, config.head_dim).transpose(1, 2)
+    query, key = attention.q_norm(query), attention.k_norm(key)
+    query, key = apply_rope(query, key, cos, sin)
+    reference = torch.nn.functional.scaled_dot_product_attention(
+        query, key.repeat_interleave(2, dim=1), value.repeat_interleave(2, dim=1), is_causal=True
+    )
+    reference = attention.wo(reference.transpose(1, 2).reshape(batch, seq, -1))
+
+    assert torch.allclose(attention(hidden, cos, sin), reference, atol=1e-6)
 
 
 def test_unknown_attention_kind_rejected() -> None:

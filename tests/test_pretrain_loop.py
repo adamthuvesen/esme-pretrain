@@ -209,7 +209,7 @@ def test_non_finite_loss_aborts_before_checkpoint(
 ) -> None:
     def fake_loss(logits, _targets, **_kwargs):
         loss = logits.sum() * float("nan")
-        return loss, {"ce_loss": float("nan"), "total_loss": float("nan")}
+        return loss, {"ce_loss": loss.detach(), "total_loss": loss.detach()}
 
     monkeypatch.setattr(pretrain_module, "language_model_loss", fake_loss)
     config = _config(tmp_path, max_steps=1, grad_accum_steps=1, warmup_steps=0)
