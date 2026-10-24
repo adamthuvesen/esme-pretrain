@@ -164,8 +164,10 @@ about 3.5 hours, set by the L18 main run.
   The held-out 214M eval is its own `heldout` stage. It refuses to run without
   the written fit output (`--prediction`) and records that file's sha256 in its
   row, so the actual value cannot be read before the prediction exists. It
-  also refuses a fit that predicts any point other than the 214M one, and a
-  checkpoint whose model is not the base config's. The `study` stage refuses
+  also refuses a fit that predicts any point other than the 214M one, a fit
+  whose points are not exactly the 12 runs of the `heldout.fit_arms` (L6, L12,
+  L18), and a checkpoint
+  whose model is not the base config's. The `study` stage refuses
   any LR that `docs/results/scaling-study/lr-gate.json` puts more than `0.02`
   nats behind the best gate row. Each container stops itself once
   its budget runs out: 2x its FLOPs estimate plus 20 minutes, at most 5 hours.

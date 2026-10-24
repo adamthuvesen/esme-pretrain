@@ -27,7 +27,8 @@
   "heldout": {
     "volume": "llm-pretrain-214m-b200",
     "checkpoint": "pretrain_214m_b200/checkpoint.pt",
-    "tokens": 10229514240
+    "tokens": 10229514240,
+    "fit_arms": ["L6", "L12", "L18"]
   },
   "shapes": {
     "d768-L6": {"embedding_dim": 768, "layers": 6, "heads": 12, "kv_heads": 4, "feedforward_dim": 2048},

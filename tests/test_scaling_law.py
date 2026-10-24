@@ -113,6 +113,7 @@ def test_scaling_fit_cli_writes_output(tmp_path, capsys) -> None:
     assert exit_code == 0
     payload = json.loads(output_path.read_text())
     assert payload["point_count"] == 12
+    assert payload["points"][0] == study_points()[0].__dict__
     assert payload["fit"]["alpha"] == pytest.approx(TRUE_ALPHA, abs=0.05)
     assert payload["prediction"]["val_ce"] == pytest.approx(
         true_loss(HELD_OUT_NON_EMBEDDING_PARAMS, HELD_OUT_TOKENS), abs=0.005

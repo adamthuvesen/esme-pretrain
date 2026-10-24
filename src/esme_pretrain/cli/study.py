@@ -79,6 +79,7 @@ def handle_scaling_fit(args: argparse.Namespace) -> int:
     payload: dict[str, Any] = {
         "points_path": str(args.points),
         "point_count": len(points),
+        "points": [vars(point) for point in points],
         "fit": {
             "E": fit.E,
             "A": fit.A,
