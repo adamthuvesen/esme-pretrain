@@ -11,6 +11,7 @@ base-model pretraining from raw text through checkpoint eval and export.
 | Model, data, training, eval, export design | `docs/architecture.md` |
 | Export bundle contract and version policy | `docs/bundle-format.md` |
 | 214M B200 config, budget, artifacts, abort rules | `docs/run-cards/pretrain-214m-b200.md` |
+| Scaling study: design, predictions, fit method, commands | `docs/run-cards/scaling-study-b200.md` |
 | GPU selection and Modal safety | `docs/internal/pretrain-214m-b200-hardware-measurements.md` (local, untracked) |
 | CLI surface and quick commands | `README.md` |
 
@@ -59,4 +60,4 @@ uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json
 
 | Rule | Enforced by | Added |
 | --- | --- | --- |
-| Never push `main` directly; ship through a feature branch and PR | `.githooks/pre-push` (activated by `make install`), tested in `tests/test_pre_push_hook.py` | 2026-10-24 |
+| Never push `main` directly; ship through a feature branch and PR | `.githooks/pre-push`, active in clones set up with `make install` (the README setup step); tested in `tests/test_pre_push_hook.py`. Clones set up otherwise have no hook. | 2026-10-24 |
