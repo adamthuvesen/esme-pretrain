@@ -77,6 +77,11 @@ def run_eval_checkpoints(config: EvalCheckpointConfig) -> dict[str, Any]:
         raise ValueError("--batch-size must be positive")
     if config.max_eval_batches is not None and config.max_eval_batches < 1:
         raise ValueError("--max-eval-batches must be positive when set")
+    # Building the fixed batches streams the validation split for tens of minutes;
+    # a missing checkpoint must fail before that, not after.
+    missing = [str(path) for path in config.checkpoint_paths if not path.exists()]
+    if missing:
+        raise ValueError(f"checkpoint does not exist: {', '.join(missing)}")
 
     launch_config = load_pretrain_config(config.config_path)
     tokenizer = load_tokenizer(config.tokenizer_path)
