@@ -1,7 +1,6 @@
 # B200 Throughput Benchmark Run Card
 
-Status: **draft, not approved.** This card approves nothing until Adam approves
-the exact commands below in chat.
+Status: **complete.** Approved in chat on 2026-10-24; run 1 and run 2 below.
 
 ## Question
 
@@ -177,7 +176,54 @@ The fixed-batch ceiling (`427,758`) is `47` percent above the June smoke's
 image, or the platform account for that. Run 2 measures the before tree to
 separate them.
 
-## Run 2 (pending approval)
+## Run 2 (2026-10-24, run id `0e0b699-20261024T154847`)
 
-The same six variants with the harness fix. Expected about `0.16` B200-hours.
-Budget, cap, and abort rules are unchanged.
+Approved in chat. The same six variants with the harness fix. Every row imported
+its assigned tree (`/root/src_before/...` or `/root/src/...`). Remote wall time
+`596` s, about `0.17` B200-hours. The client waited about 19 minutes for a GPU
+first, from contention on the shared account quota. Raw rows:
+[`docs/results/throughput-bench-b200-run2.json`](../results/throughput-bench-b200-run2.json).
+
+| Variant | Median tokens/sec | p10-p90 | MFU | Peak memory |
+| --- | ---: | ---: | ---: | ---: |
+| `before-fixed` | 344,906 | 344,198-345,528 | 24.0% | 40.69 GB |
+| `after-fixed` | 421,183 | 420,117-422,108 | 29.3% | 27.29 GB |
+| `before-stream` | 266,478 | 245,356-276,657 | 18.6% | 40.69 GB |
+| `after-stream` | 322,962 | 315,601-328,523 | 22.5% | 27.29 GB |
+| `after-shards` | 418,466 | 415,599-422,784 | 29.1% | 27.29 GB |
+| `before-fixed-repeat` | 343,457 | 342,227-345,377 | 23.9% | 40.69 GB |
+
+Control: `before-fixed-repeat` is `0.4` percent below `before-fixed`, inside the
+2 percent bound, so differences above that are resolved. The before tree's peak
+memory, `40.69` GB, equals the accepted run's recorded peak, an independent check
+that `before` is the production code.
+
+**Headline.** On one B200, the production path went from `266,478` tokens/sec
+(stream, before) to `418,466` (shards, after): `1.57x`, MFU `18.6` -> `29.1`
+percent, peak memory `40.69` -> `27.29` GB. The two halves compose:
+
+- Loop, GQA, and compiled loss, fixed batch: `344,906` -> `421,183`, `1.22x`.
+- Data path on the after code, stream -> shards: `322,962` -> `418,466`, `1.30x`.
+
+**Predictions.**
+
+1. Not confirmed. `before-fixed` is `344,906`, `18.6` percent above the June
+   smoke's `290,838`. The smoke ran older code and an older image, and this run
+   cannot separate them.
+2. Not confirmed. `before-stream` is `266,478`, `23.5` percent above the
+   accepted run's `215,714`. The accepted run also logged to W&B and read the
+   Hub over 26,015 steps; streaming throughput moved `12` percent between run 1
+   and run 2, so stream numbers compare only within one session.
+3. Confirmed. `after-fixed` beats `before-fixed` by `22.1` percent, and peak
+   memory drops by `13.4` GB, more than the `3.2` GB fp32 logits copy alone.
+   The three loop changes ran as one bundle, so their separate shares are not
+   measured.
+4. Confirmed. `after-shards` is `0.6` percent below `after-fixed` (run 1:
+   `0.6` percent).
+5. Not confirmed. `after-stream` beats `before-stream` by `21.2` percent, so
+   the loop changes also speed up the streaming path. Streaming stays at about
+   `77` percent of the fixed-batch rate under both trees. The data path is a
+   bottleneck, but not the only one, and this run does not explain the
+   interaction.
+
+**Cost.** Runs 1 and 2 together: about `0.32` B200-hours of `2.5` capped.

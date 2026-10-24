@@ -36,6 +36,14 @@ and 0.365) and the FineWeb-Edu bits-per-byte slice; the Pile slice went to the
 Pile-trained baselines. Results table: README "How Good Is It?". Raw JSONs
 live under gitignored `out/`.
 
+## Training Throughput
+
+A before/after benchmark on one B200 (2026-10-24,
+[run card](run-cards/throughput-bench-b200.md)) measured the production 214M step
+shape at `418,466` tokens/sec on pre-tokenized shards with the current loop,
+against `266,478` for the accepted run's code and streaming data path: `1.57x`,
+MFU `18.6` -> `29.1` percent, peak memory `40.69` -> `27.29` GB.
+
 ## Safety
 
 - Full pretraining remains approval-gated in code and docs.
