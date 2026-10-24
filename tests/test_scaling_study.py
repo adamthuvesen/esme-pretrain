@@ -236,3 +236,38 @@ def test_a_cancelled_arm_budget_timer_never_fires() -> None:
 
     assert result.returncode == 0
     assert "exceeded" not in result.stdout
+
+
+def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
+    tmp_path: Path, capsys
+) -> None:
+    # The run card pre-registers that the 214M actual is read only after the fit's
+    # prediction exists; the launcher enforces that order.
+    code = scaling_study.launch(["--stage", "heldout", "--spend-cap-usd", "20", "--check-only"])
+    assert code == 2
+    assert "needs --prediction" in capsys.readouterr().err
+
+    prediction = tmp_path / "fit.json"
+    prediction.write_text(json.dumps({"prediction": {"val_ce": 2.8}}))
+    code = scaling_study.launch(
+        [
+            "--stage",
+            "heldout",
+            "--prediction",
+            str(prediction),
+            "--spend-cap-usd",
+            "20",
+            "--check-only",
+        ]
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert report["arms"] == [] and report["heldout_eval"] is True
+    assert report["prediction"]["val_ce"] == 2.8
+
+
+def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
+    code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "1000", "--check-only"])
+
+    assert code == 0
+    assert json.loads(capsys.readouterr().out)["heldout_eval"] is False
