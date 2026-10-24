@@ -55,8 +55,8 @@ OPTIMIZER_SCHEDULE_FIELDS = (
     "beta2",
     "grad_clip",
 )
-# A cooldown branch may change only where its decay happens.
-BRANCH_SCHEDULE_FIELDS = ("max_steps", "decay_fraction")
+# A cooldown branch may change only its length, which moves where its decay starts.
+BRANCH_SCHEDULE_FIELDS = ("max_steps",)
 
 
 @dataclass(frozen=True)
@@ -238,8 +238,8 @@ def _check_branch_schedule(
 ) -> None:
     """Refuse a branch unless both schedules agree on every step before the fork.
 
-    The branch may move the decay (``max_steps``, ``decay_fraction``) but nothing
-    else, and the fork must sit after warmup and before either schedule decays. Then
+    The branch may change only ``max_steps`` (which moves its decay start), and the
+    fork must sit after warmup and before either schedule decays. Then
     the checkpoint's past is exactly the past the branch's own schedule would have
     produced, so the branch equals a from-scratch run of its schedule.
     """
