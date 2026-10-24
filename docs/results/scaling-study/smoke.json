@@ -1,0 +1,92 @@
+{
+  "arms": [
+    {
+      "arm": "smoke",
+      "flops": 7511880083963904.0,
+      "runs": [
+        "main",
+        "branch-20steps"
+      ],
+      "timeout_hours": 0.34
+    }
+  ],
+  "assumed_tflops": 430.0,
+  "client_wall_seconds": 620.5163418329903,
+  "commit": "51870ae9ef5f958f34c7febb90f0c934cf882dc4",
+  "dirty": false,
+  "estimated_cost_usd": 0.03,
+  "estimated_gpu_hours": 0.0,
+  "gpu": "B200",
+  "heldout_eval": false,
+  "max_concurrent": 4,
+  "outcomes": {
+    "smoke": {
+      "arm": "smoke",
+      "rows": [
+        {
+          "arm": "smoke",
+          "commit": "51870ae9ef5f958f34c7febb90f0c934cf882dc4",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0006,
+          "max_steps": 40,
+          "mfu": 0.31111250601924795,
+          "non_embedding_params": 37759488,
+          "notes": [],
+          "peak_memory_gb": 9.577820777893066,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L6",
+          "stage": "smoke",
+          "steady_tokens_per_second": 1612260.4416135394,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "smoke-51870ae-20261024T171214",
+          "tokens": 15728640,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 62925312,
+          "train_loss_last": 6.644028663635254,
+          "val_ce": 6.621325986098306,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 58.61925409700001,
+          "warmup_steps": 10
+        },
+        {
+          "arm": "smoke",
+          "commit": "51870ae9ef5f958f34c7febb90f0c934cf882dc4",
+          "fork_step": 16,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0006,
+          "max_steps": 20,
+          "mfu": 0.3122967903606425,
+          "non_embedding_params": 37759488,
+          "notes": [
+            "branched from /tmp/work/smoke/main/checkpoint-step16.pt at step 16 (stream offset 6297600 tokens)"
+          ],
+          "peak_memory_gb": 9.577826023101807,
+          "run": "branch-20steps",
+          "seed": 0,
+          "shape": "d768-L6",
+          "stage": "smoke",
+          "steady_tokens_per_second": 1618397.6902239653,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "smoke-51870ae-20261024T171214",
+          "tokens": 7864320,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 62925312,
+          "train_loss_last": 7.162351608276367,
+          "val_ce": 7.157747805460275,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 23.141681145999996,
+          "warmup_steps": 10
+        }
+      ],
+      "status": "ok"
+    }
+  },
+  "spend_cap_usd": 20.0,
+  "stage": "smoke",
+  "study_run_id": "smoke-51870ae-20261024T171214",
+  "worst_case_cost_usd": 2.14
+}

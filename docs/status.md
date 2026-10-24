@@ -36,6 +36,15 @@ and 0.365) and the FineWeb-Edu bits-per-byte slice; the Pile slice went to the
 Pile-trained baselines. Results table: README "How Good Is It?". Raw JSONs
 live under gitignored `out/`.
 
+## Scaling Study (in progress)
+
+Phase 2 fits a scaling law on 38-113M models and predicts this base model's
+fixed-validation loss
+([run card](run-cards/scaling-study-b200.md)). The infrastructure, data, and smoke
+stage are done. The LR gate failed its pre-registered rule: at 38M non-embedding
+params, LR `1.2e-3` beat the recipe's `6e-4` by `0.093` nats. The LR choice is
+open before the study runs.
+
 ## Training Throughput
 
 A before/after benchmark on one B200 (2026-10-24,

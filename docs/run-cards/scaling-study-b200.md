@@ -152,21 +152,51 @@ about 3.5 hours, set by the L18 main run.
   seed, and LR. `study/plan.py` expands it into runs and refuses any branch
   that forks outside the main run's peak-LR phase.
 - `PretrainConfig.branch_from`: a branch starts from a checkpoint's weights,
-  optimizer state, and data offset. It may change only `max_steps` and
-  `decay_fraction`. A CPU test shows a branch equals a from-scratch run of its
-  schedule bit for bit.
+  optimizer state, and data offset. It may change only `max_steps`. A CPU test
+  shows a branch equals a from-scratch run of its schedule bit for bit.
 - `ShardBatchLoader` requires the model's vocab and the tokenizer's sha256.
   `fixed_validation_batches` refuses validation tokens that do not hash to
   `1e1bb2aa...`.
 - `launch/scaling_study.py`: stages run separately (`smoke`, `lr-gate`,
-  `study`). Each arm gets its own B200 container, with a timeout of 2x its
-  FLOPs estimate plus 20 minutes (at most 5 hours). Containers copy the shards
-  to local disk. At most 4 arms run at once. Rows go to the volume as runs
-  finish, and the app runs detached. The study stage also scores the accepted
-  214M checkpoint on the same batches, in the same fp32 path. `--check-only`
-  prices a stage.
+  `study`). Every arm is spawned at launch into a detached app, one B200
+  container each. Modal runs at most 4 at once (`max_containers`), so a client
+  disconnect neither stops nor drops an arm. Each container stops itself once
+  its budget runs out: 2x its FLOPs estimate plus 20 minutes, at most 5 hours.
+  Containers copy the shards to local disk, and rows go to the volume as runs
+  finish. `--check-only` prices a stage.
+- Scoring: every run and the held-out 214M checkpoint are scored by
+  `validation_ce` in true fp32. Training enables TF32 process-wide, so the
+  scorer sets `float32_matmul_precision("highest")` for the eval and restores
+  it afterwards. The accepted `2.7756` eval also ran in fp32.
+- `esme-pretrain scaling-fit --results-dir <dir> --arm L6 --arm L12 --arm L18`
+  reads the study's rows directly, one point per run, labeled `arm/run`.
 - `tests/test_scaling_study.py` trains a tiny arm (main and branch) end to end
   on CPU, scores it, and writes its rows.
+
+## Commands
+
+```bash
+# Data (done 2026-10-24; CPU and upload only). 5B train and 20M validation
+# tokens from sample-10BT files 000-006 at revision 87f09149.
+uv run --extra baselines esme-pretrain pretokenize --split validation --max-tokens 20000000 \
+  --config configs/pretrain_214m_b200.json --tokenizer runs/pretrain-214m-b200/dl/tokenizer.json \
+  --output-dir data/processed/study-shards --corpus-parquet <file> ...
+uv run --extra baselines esme-pretrain pretokenize --split train --max-tokens 5000000000 ...
+uv run modal volume create esme-pretrain-study
+uv run modal volume put esme-pretrain-study data/processed/study-shards /shards
+uv run modal volume put esme-pretrain-study runs/pretrain-214m-b200/dl/tokenizer.json /tokenizer.json
+
+# Stages, each priced first with --check-only.
+uv run python scripts/modal_scaling_study.py --stage smoke --spend-cap-usd 20 --approved
+uv run python scripts/modal_scaling_study.py --stage lr-gate --spend-cap-usd 20 --approved
+uv run python scripts/modal_scaling_study.py --stage study --spend-cap-usd <cap> --approved
+
+# Fit and held-out prediction, after the study rows are fetched from the volume.
+uv run modal volume get esme-pretrain-study /results/<study-run-id> runs/scaling-study/
+uv run esme-pretrain scaling-fit --results-dir runs/scaling-study/<study-run-id> \
+  --arm L6 --arm L12 --arm L18 --predict-non-embedding-params 188794368 \
+  --predict-tokens 10229514240 --output docs/results/scaling-study/fit.json
+```
 
 ## Artifacts
 
@@ -176,3 +206,30 @@ about 3.5 hours, set by the L18 main run.
 - A results section in this card that scores each prediction.
 - Plots: loss vs tokens per size, the fitted surface with the 214M point, and
   depth vs width.
+
+## Gate Results (2026-10-24)
+
+**Smoke** (run `smoke-51870ae-20261024T171214`, about 10 minutes of one B200, on
+the Python 3.13 image). The main run checkpointed at its fork. The branch resumed
+from step 16 at stream offset `6,297,600` tokens (16 x 393,216 x 1025/1024).
+Both runs were scored on validation batches hashing to `1e1bb2aa...`. L6 trained
+at `1.61M` tokens/sec, 31 percent MFU, about 700 TFLOP/s. That beats the
+430 assumed above, so every study estimate here is conservative. Rows:
+[`docs/results/scaling-study/smoke.json`](../results/scaling-study/smoke.json).
+
+**LR gate: failed** (run `lr-gate-51870ae-20261024T172303`, three B200s for
+about 6 minutes each). Rows:
+[`docs/results/scaling-study/lr-gate.json`](../results/scaling-study/lr-gate.json).
+
+| L6, 0.5B tokens | Validation CE |
+| --- | ---: |
+| LR `3e-4` | 3.7176 |
+| LR `6e-4` (the 214M recipe) | 3.5476 |
+| LR `1.2e-3` | 3.4542 |
+
+`6e-4` is `0.093` nats worse than the best LR, past the `0.02` stop rule. The
+best LR is also the edge of the grid, so the optimum may lie higher. Per this
+card, the study stops, and the LR choice goes back to Adam. These three runs
+were scored with TF32 matmuls, before the fp32 scoring fix. All three share that
+path, so the comparison between them holds.
+

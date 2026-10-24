@@ -109,10 +109,10 @@ Active code lives in [`src/esme_pretrain/`](src/esme_pretrain/).
 
 ## Quickstart
 
-Install the dev environment:
+Install the dev environment and activate the repo's git hooks:
 
 ```bash
-uv sync --extra dev
+make install
 ```
 
 Check the repo:
@@ -182,6 +182,12 @@ uv run --extra baselines esme-pretrain baseline-eval \
 uv run esme-pretrain baseline-compare \
   --result out/esme.json --result out/cerebras.json --result out/pythia.json \
   --output out/comparison.md
+
+# Scaling study: price a stage, run it, then fit the law from its rows
+# (design and predictions: docs/run-cards/scaling-study-b200.md)
+uv run python scripts/modal_scaling_study.py --stage study --spend-cap-usd <cap> --check-only
+uv run esme-pretrain scaling-fit --results-dir <study-results> --arm L6 --arm L12 --arm L18 \
+  --predict-non-embedding-params 188794368 --predict-tokens 10229514240 --output fit.json
 ```
 
 The baseline comparison scores `Esme-214M-Base` against pinned public base
