@@ -33,7 +33,8 @@ STUDY_VOLUME = "esme-pretrain-study"
 HELDOUT_VOLUME = "llm-pretrain-214m-b200"
 MAX_ARM_TIMEOUT_SECONDS = 5 * 3600
 ARM_TIMEOUT_SLACK_SECONDS = 20 * 60
-# Leaves room under the shared account's GPU quota for other work.
+# Leaves room under the shared account's GPU quota for other work. The study
+# stage's held-out eval (at most 30 minutes) runs beside these as a fifth GPU.
 MAX_CONCURRENT_ARMS = 4
 ARM_BUDGET_EXCEEDED_EXIT = 3
 HELDOUT_TIMEOUT_SECONDS = 30 * 60
@@ -55,6 +56,9 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         timeout=MAX_ARM_TIMEOUT_SECONDS,
         volumes={"/study": study_volume},
         max_containers=MAX_CONCURRENT_ARMS,
+        # One arm per container: a reused container would carry the previous arm's
+        # budget timer into the next arm.
+        single_use_containers=True,
     )
     def train_arm(
         study_payload: dict[str, Any], base_payload: dict[str, Any], arm: str, params: dict
@@ -199,7 +203,7 @@ def launch(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _stop_after(budget_seconds: int, arm_name: str) -> None:
+def _stop_after(budget_seconds: int, arm_name: str) -> threading.Timer:
     """End this container once the arm's budget is spent; finished rows are already saved.
 
     All arms share one Modal function (so ``max_containers`` caps them together),
@@ -213,6 +217,7 @@ def _stop_after(budget_seconds: int, arm_name: str) -> None:
     timer = threading.Timer(budget_seconds, stop)
     timer.daemon = True
     timer.start()
+    return timer
 
 
 def _stage_shards() -> Path:
@@ -251,7 +256,7 @@ def train_arm_body(
 
     from esme_pretrain.study.arm_training import train_study_arm
 
-    _stop_after(params["budget_seconds"], arm_name)
+    budget_timer = _stop_after(params["budget_seconds"], arm_name)
     plan = study_plan_from_payloads(study_payload, base_payload)
     arm = next(arm for arm in plan.arms if arm.arm == arm_name)
     model = arm.runs[0].model
@@ -274,6 +279,7 @@ def train_arm_body(
             "gpu_name": torch.cuda.get_device_name(0),
         },
     )
+    budget_timer.cancel()
     return {"arm": arm_name, "rows": rows}
 
 
