@@ -1,12 +1,13 @@
 """Launch scaling-study stages on Modal B200s.
 
-Stages run separately (``smoke``, ``lr-gate``, ``study``), so each spend is
-gated on its own. Every arm is spawned at launch, one container each, and Modal
+Stages run separately (``smoke``, ``lr-gate``, ``study``, ``heldout``), so each
+spend is gated on its own. Every arm is spawned at launch, one container each, and Modal
 runs at most ``MAX_CONCURRENT_ARMS`` at once, so a client disconnect neither
 stops nor drops an arm. Each container stops itself when its FLOPs-sized budget
 runs out. Every finished run's row is committed to the study volume as it lands.
-The study stage also scores the accepted 214M checkpoint on the same validation
-batches, in the same fp32 path.
+The ``heldout`` stage scores the accepted 214M checkpoint on the same validation
+batches, in the same fp32 path, and refuses to run before the fit's prediction is
+written: the run card pre-registers that the actual value is read only after it.
 The run card is ``docs/run-cards/scaling-study-b200.md``.
 """
 
@@ -88,7 +89,12 @@ def arm_timeout_seconds(arm: StudyArm, *, assumed_tflops: float) -> int:
 def launch(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one scaling-study stage on Modal.")
     parser.add_argument("--config", type=Path, default=Path("configs/scaling_study.json"))
-    parser.add_argument("--stage", required=True, choices=["smoke", "lr-gate", "study"])
+    parser.add_argument("--stage", required=True, choices=["smoke", "lr-gate", "study", "heldout"])
+    parser.add_argument(
+        "--prediction",
+        type=Path,
+        help="The written scaling-fit output; the heldout stage refuses to run without it.",
+    )
     parser.add_argument("--arm", action="append", default=[], help="Run only these arms.")
     parser.add_argument("--assumed-tflops", type=float, default=430.0)
     parser.add_argument("--spend-cap-usd", type=float, required=True)
@@ -101,14 +107,15 @@ def launch(argv: list[str] | None = None) -> int:
         plan = load_study_plan(args.config)
         if plan.data["volume"] != STUDY_VOLUME:
             raise ValueError(f"config volume {plan.data['volume']!r} is not {STUDY_VOLUME!r}")
-        arms = plan.arms_for(args.stage, tuple(args.arm))
+        with_heldout = args.stage == "heldout"
+        prediction = _written_prediction(args.prediction) if with_heldout else None
+        arms = () if with_heldout else plan.arms_for(args.stage, tuple(args.arm))
         study_payload = json.loads(args.config.read_text(encoding="utf-8"))
         base_payload = json.loads(Path(study_payload["base_config"]).read_text(encoding="utf-8"))
         usd_per_hour = float(base_payload["runtime"]["gpu_profiles"][STUDY_GPU]["usd_per_hour"])
         timeouts = {
             arm.arm: arm_timeout_seconds(arm, assumed_tflops=args.assumed_tflops) for arm in arms
         }
-        with_heldout = args.stage == "study" and not args.arm
         reserved_seconds = sum(timeouts.values()) + (HELDOUT_TIMEOUT_SECONDS if with_heldout else 0)
         worst_case_cost = round(reserved_seconds / 3600 * usd_per_hour, 2)
         _check_spend_cap(worst_case_cost, args.spend_cap_usd)
@@ -130,6 +137,7 @@ def launch(argv: list[str] | None = None) -> int:
             for arm in arms
         ],
         "heldout_eval": with_heldout,
+        "prediction": prediction,
         "assumed_tflops": args.assumed_tflops,
         "estimated_gpu_hours": round(estimated_hours, 2),
         "estimated_cost_usd": round(estimated_hours * usd_per_hour, 2),
@@ -153,7 +161,7 @@ def launch(argv: list[str] | None = None) -> int:
         return 2
 
     study_run_id = f"{args.stage}-{report['commit'][:7]}-{time.strftime('%Y%m%dT%H%M%S')}"
-    params = {"study_run_id": study_run_id, "commit": report["commit"]}
+    params = {"study_run_id": study_run_id, "commit": report["commit"], "prediction": prediction}
     print(
         f"scaling study: run {study_run_id}; rows are committed to "
         f"{STUDY_VOLUME}:/results/{study_run_id}/ as they finish",
@@ -201,6 +209,19 @@ def launch(argv: list[str] | None = None) -> int:
         print(f"scaling study: arms did not complete: {failed}", file=sys.stderr)
         return 1
     return 0
+
+
+def _written_prediction(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.is_file():
+        raise ValueError("the heldout stage needs --prediction, the written scaling-fit output")
+    from esme_pretrain.postrun.eval_checkpoints import file_sha256
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        "path": str(path),
+        "sha256": file_sha256(path),
+        "val_ce": float(payload["prediction"]["val_ce"]),
+    }
 
 
 def _stop_after(budget_seconds: int, arm_name: str) -> threading.Timer:
@@ -312,6 +333,7 @@ def eval_heldout_body(
         "val_token_batch_sha256": hash_eval_batches(batches),
         "study_run_id": params["study_run_id"],
         "commit": params["commit"],
+        "prediction": params["prediction"],
     }
     results_dir = Path("/study/results") / params["study_run_id"]
     results_dir.mkdir(parents=True, exist_ok=True)

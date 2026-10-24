@@ -160,8 +160,10 @@ about 3.5 hours, set by the L18 main run.
 - `launch/scaling_study.py`: stages run separately (`smoke`, `lr-gate`,
   `study`). Every arm is spawned at launch into a detached app, each in its own
   single-use B200 container. Modal runs at most 4 arms at once
-  (`max_containers`), plus the study stage's held-out eval for at most 30
-  minutes, so a client disconnect neither stops nor drops an arm. Each container stops itself once
+  (`max_containers`), so a client disconnect neither stops nor drops an arm.
+  The held-out 214M eval is its own `heldout` stage. It refuses to run without
+  the written fit output (`--prediction`) and records that file's sha256 in its
+  row, so the actual value cannot be read before the prediction exists. Each container stops itself once
   its budget runs out: 2x its FLOPs estimate plus 20 minutes, at most 5 hours.
   Containers copy the shards to local disk, and rows go to the volume as runs
   finish. `--check-only` prices a stage.
@@ -197,6 +199,11 @@ uv run modal volume get esme-pretrain-study /results/<study-run-id> runs/scaling
 uv run esme-pretrain scaling-fit --results-dir runs/scaling-study/<study-run-id> \
   --arm L6 --arm L12 --arm L18 --predict-non-embedding-params 188794368 \
   --predict-tokens 10229514240 --output docs/results/scaling-study/fit.json
+git add docs/results/scaling-study/fit.json && git commit -m "..."   # prediction first
+
+# Only then: score the 214M checkpoint on the same validation batches.
+uv run python scripts/modal_scaling_study.py --stage heldout \
+  --prediction docs/results/scaling-study/fit.json --spend-cap-usd 20 --approved
 ```
 
 ## Artifacts
