@@ -294,3 +294,51 @@ that comparison as inside the scoring difference.
 3.3 B200-hours; at measured throughput (L6 about 700, the 214M run about 520
 TFLOP/s) it is about 2 to 2.5 B200-hours plus container start-up. The worst
 case, if every container runs to its timeout, is about 10 B200-hours.
+
+### Sweep Results (run `lr-gate-5d97495-20261024T193042`)
+
+Ten B200 runs, about 2.6 B200-hours in all. Rows:
+[`docs/results/scaling-study/lr-sweep.json`](../results/scaling-study/lr-sweep.json).
+Validation CE at 0.5B tokens:
+
+| Shape | `6e-4` | `1.2e-3` | `2.4e-3` | `6e-4` minus best |
+| --- | ---: | ---: | ---: | ---: |
+| L6 (37.8M) | 3.5476* | 3.4542* | **3.4171** | 0.131 |
+| L12 (75.5M) | 3.4425 | 3.3674 | **3.3382** | 0.104 |
+| L18 (113.3M) | 3.3888 | 3.3130 | **3.2983** | 0.090 |
+| L30 (188.8M) | 3.3389 | 3.2698 | **3.2519** | 0.087 |
+
+\* From the LR gate, scored with TF32. L6's best two differ by `0.037` nats,
+well above the `0.005` flag, so the scoring difference does not decide L6.
+
+Every shape is best at the highest LR swept, so rule 2 adds one run per shape
+at `4.8e-3`.
+
+## Amendment 2: Rules Fixed Before the `4.8e-3` Runs (2026-10-24)
+
+1. **Ties.** A `4.8e-3` run that beats `2.4e-3` by less than `0.005` nats is a
+   tie, and ties go to the lower LR. A `4.8e-3` run that stops on a non-finite
+   loss or gradient (the trainer raises on both) loses to `2.4e-3`.
+2. **Divergence in a study arm.** A study run diverges if it stops on a
+   non-finite loss, or if its 50-step mean train loss rises more than `0.5`
+   nats above its running minimum after warmup. These two thresholds have no
+   external source; they are fixed here, before any study data. A diverged arm
+   reruns once at its shape's next lower swept LR, and the report names it.
+   That rerun is the one exception to the `0.02`-nat guard in rule 4 of
+   Amendment 1. The launcher does not yet encode it; it is added only if a
+   divergence happens, in the same change that records it.
+3. **Horizon bias.** The sweep picks each LR at 0.5B tokens: 13x N for L6, 6.6x
+   for L12, 4.4x for L18, and 2.6x for L30. The study's main runs go to 40x N,
+   which stretches the horizon 3x for L6 and 9x for L18. The best LR falls as
+   the horizon grows, so a 0.5B pick is likely more too-high for larger shapes.
+   That would bias the fitted N exponent low. The report gives each arm's
+   residuals at its `5x` branch (close to the sweep horizon) and at `40x`. A
+   residual trend that tracks shape is this bias.
+4. **Reading the L30 gap.** The `0.087`-nat cost of `6e-4` at L30 is measured at
+   0.5B tokens. A too-low LR costs less as training gets longer, so this is an
+   upper bound on the 214M run's handicap at 10.23B tokens. The report never
+   subtracts it from prediction 2's residual. If the 214M actual is worse than
+   the prediction by less than this gap, the report reads the miss as
+   consistent with the LR handicap, not as caused by it.
+5. **Noise floor.** All 12 fit points use seed 0. Until the deep-thin repeat
+   runs, the only noise estimate is the `0.005`-nat scoring flag.
