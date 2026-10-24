@@ -247,19 +247,17 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
     assert code == 2
     assert "needs --prediction" in capsys.readouterr().err
 
+    # A fit written for any other (N, D) than the held-out 214M point is refused.
     prediction = tmp_path / "fit.json"
-    prediction.write_text(json.dumps({"prediction": {"val_ce": 2.8}}))
-    code = scaling_study.launch(
-        [
-            "--stage",
-            "heldout",
-            "--prediction",
-            str(prediction),
-            "--spend-cap-usd",
-            "20",
-            "--check-only",
-        ]
-    )
+    target = {"non_embedding_params": 188794368, "tokens": 10229514240, "val_ce": 2.8}
+    prediction.write_text(json.dumps({"prediction": {**target, "tokens": 5_000_000_000}}))
+    args = ["--stage", "heldout", "--prediction", str(prediction), "--spend-cap-usd", "20"]
+    code = scaling_study.launch([*args, "--check-only"])
+    assert code == 2
+    assert "the held-out point is N=188794368, D=10229514240" in capsys.readouterr().err
+
+    prediction.write_text(json.dumps({"prediction": target}))
+    code = scaling_study.launch([*args, "--check-only"])
     report = json.loads(capsys.readouterr().out)
     assert code == 0
     assert report["arms"] == [] and report["heldout_eval"] is True

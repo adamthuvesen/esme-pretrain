@@ -26,6 +26,7 @@ from typing import Any
 from esme_pretrain.launch.gpu_smoke import _check_spend_cap
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
+from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.study.plan import StudyArm, load_study_plan, study_plan_from_payloads
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -107,11 +108,21 @@ def launch(argv: list[str] | None = None) -> int:
         plan = load_study_plan(args.config)
         if plan.data["volume"] != STUDY_VOLUME:
             raise ValueError(f"config volume {plan.data['volume']!r} is not {STUDY_VOLUME!r}")
-        with_heldout = args.stage == "heldout"
-        prediction = _written_prediction(args.prediction) if with_heldout else None
-        arms = () if with_heldout else plan.arms_for(args.stage, tuple(args.arm))
         study_payload = json.loads(args.config.read_text(encoding="utf-8"))
         base_payload = json.loads(Path(study_payload["base_config"]).read_text(encoding="utf-8"))
+        with_heldout = args.stage == "heldout"
+        prediction = (
+            _written_prediction(
+                args.prediction,
+                non_embedding_params=BackboneConfig.from_dict(
+                    base_payload["model"]
+                ).parameter_count()["non_embedding"],
+                tokens=int(plan.heldout["tokens"]),
+            )
+            if with_heldout
+            else None
+        )
+        arms = () if with_heldout else plan.arms_for(args.stage, tuple(args.arm))
         usd_per_hour = float(base_payload["runtime"]["gpu_profiles"][STUDY_GPU]["usd_per_hour"])
         timeouts = {
             arm.arm: arm_timeout_seconds(arm, assumed_tflops=args.assumed_tflops) for arm in arms
@@ -211,12 +222,21 @@ def launch(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _written_prediction(path: Path | None) -> dict[str, Any]:
+def _written_prediction(
+    path: Path | None, *, non_embedding_params: int, tokens: int
+) -> dict[str, Any]:
+    """The fit's prediction, refused unless it targets the held-out 214M point."""
     if path is None or not path.is_file():
         raise ValueError("the heldout stage needs --prediction, the written scaling-fit output")
     from esme_pretrain.postrun.eval_checkpoints import file_sha256
 
     payload = json.loads(path.read_text(encoding="utf-8"))
+    target = payload["prediction"]
+    if (target["non_embedding_params"], target["tokens"]) != (non_embedding_params, tokens):
+        raise ValueError(
+            f"{path} predicts N={target['non_embedding_params']}, D={target['tokens']}; "
+            f"the held-out point is N={non_embedding_params}, D={tokens}"
+        )
     return {
         "path": str(path),
         "sha256": file_sha256(path),
@@ -319,6 +339,8 @@ def eval_heldout_body(
     plan = study_plan_from_payloads(study_payload, base_payload)
     checkpoint = Path("/accepted") / plan.heldout["checkpoint"]
     model = load_pretrain_checkpoint(checkpoint).model.config
+    if model != BackboneConfig.from_dict(base_payload["model"]):
+        raise ValueError(f"{checkpoint} is not the base config's model: {model}")
     batches = _study_validation(
         plan, _stage_shards(), vocab_size=model.vocab_size, context_length=model.context_length
     )
