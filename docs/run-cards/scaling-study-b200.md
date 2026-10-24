@@ -163,7 +163,11 @@ about 3.5 hours, set by the L18 main run.
   (`max_containers`), so a client disconnect neither stops nor drops an arm.
   The held-out 214M eval is its own `heldout` stage. It refuses to run without
   the written fit output (`--prediction`) and records that file's sha256 in its
-  row, so the actual value cannot be read before the prediction exists. Each container stops itself once
+  row, so the actual value cannot be read before the prediction exists. It
+  also refuses a fit that predicts any point other than the 214M one, and a
+  checkpoint whose model is not the base config's. The `study` stage refuses
+  any LR that `docs/results/scaling-study/lr-gate.json` puts more than `0.02`
+  nats behind the best gate row. Each container stops itself once
   its budget runs out: 2x its FLOPs estimate plus 20 minutes, at most 5 hours.
   Containers copy the shards to local disk, and rows go to the volume as runs
   finish. `--check-only` prices a stage.
@@ -172,7 +176,9 @@ about 3.5 hours, set by the L18 main run.
   scorer sets `float32_matmul_precision("highest")` for the eval and restores
   it afterwards. The accepted `2.7756` eval also ran in fp32.
 - `esme-pretrain scaling-fit --results-dir <dir> --arm L6 --arm L12 --arm L18`
-  reads the study's rows directly, one point per run, labeled `arm/run`.
+  reads the study's rows directly, one point per run, labeled `arm/run`. Each
+  row names its arm's planned runs (`arm_runs`), and the fit refuses an arm
+  that is missing one.
 - `tests/test_scaling_study.py` trains a tiny arm (main and branch) end to end
   on CPU, scores it, and writes its rows.
 
