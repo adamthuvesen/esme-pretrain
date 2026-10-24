@@ -158,9 +158,10 @@ about 3.5 hours, set by the L18 main run.
   `fixed_validation_batches` refuses validation tokens that do not hash to
   `1e1bb2aa...`.
 - `launch/scaling_study.py`: stages run separately (`smoke`, `lr-gate`,
-  `study`). Every arm is spawned at launch into a detached app, one B200
-  container each. Modal runs at most 4 at once (`max_containers`), so a client
-  disconnect neither stops nor drops an arm. Each container stops itself once
+  `study`). Every arm is spawned at launch into a detached app, each in its own
+  single-use B200 container. Modal runs at most 4 arms at once
+  (`max_containers`), plus the study stage's held-out eval for at most 30
+  minutes, so a client disconnect neither stops nor drops an arm. Each container stops itself once
   its budget runs out: 2x its FLOPs estimate plus 20 minutes, at most 5 hours.
   Containers copy the shards to local disk, and rows go to the volume as runs
   finish. `--check-only` prices a stage.

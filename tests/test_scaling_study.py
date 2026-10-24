@@ -218,3 +218,21 @@ def test_arm_budget_watchdog_ends_the_container_process() -> None:
     assert result.returncode == scaling_study.ARM_BUDGET_EXCEEDED_EXIT
     assert "exceeded its 0.2 s budget" in result.stdout
     assert __import__("time").perf_counter() - started < 20
+
+
+def test_a_cancelled_arm_budget_timer_never_fires() -> None:
+    # An arm that finishes inside its budget cancels its timer, so the deadline can
+    # never end a later process.
+    import subprocess
+    import sys
+
+    script = (
+        "import time\n"
+        "from esme_pretrain.launch.scaling_study import _stop_after\n"
+        "_stop_after(0.3, 'probe').cancel()\n"
+        "time.sleep(1.0)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+
+    assert result.returncode == 0
+    assert "exceeded" not in result.stdout
