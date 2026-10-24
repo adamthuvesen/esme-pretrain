@@ -102,17 +102,19 @@ those figures: the MFU curve is computed from tokens/sec and FLOPs-per-token
 at plot time. No raw MFU measurement exists.
 
 Not everything survived. The acceptance eval and report were produced locally
-after the run and later lost; they were regenerated in July 2026 from the
-checkpoint, deterministically, and the regenerated bits per byte agreed with
-an independent measurement from the baseline harness to about 0.001. A later
-code review found that this eval counted a character split across tokens once
-per token, which over-counted bytes by 0.046 percent. The October 2026 re-run
-scored the identical token batches with the fixed count: 0.9005, not 0.9001,
-and the agreement with the harness tightened to about 0.0007. The raw
-GPU-smoke records behind the B200 decision are gone for good (recreating them
-means renting three GPUs again), though the measured numbers live on in the
-committed config. Losing instrument readings while keeping the conclusions is
-survivable exactly once; section 9 makes it a rule instead of a habit.
+after the run and later lost. They were regenerated from the checkpoint,
+deterministically, and the regenerated bits per byte agrees with an independent
+measurement from the baseline harness to about 0.0007. The raw GPU-smoke records
+behind the B200 decision are gone for good (recreating them means renting three
+GPUs again), though the measured numbers live on in the committed config.
+Losing instrument readings while keeping the conclusions is survivable exactly
+once. Section 9 makes it a rule instead of a habit.
+
+Two follow-up studies build on this run. A
+[throughput benchmark](run-cards/throughput-bench-b200.md) makes the same
+training step 1.57x faster on one B200, and a
+[scaling study](run-cards/scaling-study-b200.md) predicts this run's loss from
+smaller models.
 
 ## 3. Is the base model any good?
 
@@ -136,7 +138,7 @@ own small lesson about where to keep pre-registrations.
 The expectation about Pythia was wrong. Esme won 6 of 7 downstream tasks
 against both baselines, averaging 0.408 against Cerebras's 0.347 and Pythia's
 0.365. The full table is in the
-[README](../README.md#how-good-is-it), backed by the pinned
+[README](../README.md#the-base-model-beats-two-public-baselines), backed by the pinned
 [config](../configs/baseline_eval.json). The shape of the one loss says as
 much as the wins: LAMBADA tests fiction, FineWeb-Edu barely contains fiction,
 and on bits per byte each model wins its home text (Esme 0.901 on FineWeb-Edu
@@ -194,19 +196,14 @@ too. The acceptance criteria at this scale are qualitative (repetition,
 length, likelihood, and coherence proxies), on the written argument that
 benchmark suites meant for much larger models say little at 214M.
 
-The honest gap in this stage was chat_eval, and the first version of this
-document misstated it. The eval had in fact run, on Modal on 2026-06-28,
-against the accepted SFT and DPO checkpoints; what never happened was
-retrieval. Its results sat on the Modal volume, unretrieved and uncommitted,
-so "it was never run" (this document's original claim) was really "it
-ran, and nobody went back for the numbers": the exact off-machine-artifact
-failure section 9 warns about, live in this document's own claims. The
-results were downloaded and pinned on 2026-07-10 in the
-[run card's Chat Eval Result section](https://github.com/adamthuvesen/esme-posttrain/blob/main/run_cards/esme-214m-chat-dpo.md#chat-eval-result-sft-vs-dpo):
+chat_eval ran on Modal on 2026-06-28 against the accepted SFT and DPO
+checkpoints, and its results sat unretrieved on the Modal volume for two
+weeks: the off-machine-artifact failure section 9 warns about. They are now
+pinned in the
+[run card's Chat Eval Result section](https://github.com/adamthuvesen/esme-posttrain/blob/main/run_cards/esme-214m-chat-dpo.md#chat-eval-result-sft-vs-dpo).
 DPO reduces 3-gram repetition under both decoders with no degenerate length
-shift, and no LLM judge is configured, so the record carries generation
-metrics, not judge scores. The gap is closed; chat quality no longer rests
-on preference accuracy and read transcripts alone.
+shift. No LLM judge is configured, so the record carries generation metrics,
+not judge scores.
 
 ## 6. RLVR: reinforcement learning against a verifier
 
@@ -335,11 +332,10 @@ is reconstructed at plot time. Each is one line of code at run time and a
 derivation with a footnote afterward.
 
 If a fourth fits: run the measurements you build, and go back for what they
-write. chat_eval turned out to have run after all: its results sat
-unretrieved on a Modal volume while this document called it never-run (the
-correction is in section 5), and they are now pinned in the posttrain run
-card. The tokenizer lab's comparison table was never saved and stays lost.
-Both started as process without numbers; only one could be recovered.
+write. chat_eval's results sat unretrieved on a Modal volume until they were
+pinned in the posttrain run card. The tokenizer lab's comparison table was
+never saved and stays lost. Both started as process without numbers, and only
+one could be recovered.
 
 ## 10. How this document was written
 
@@ -349,7 +345,7 @@ with 16 gaps logged. This document was then written from the inventory, and
 the gaps appear above at the point where they weaken a claim. Four
 cross-repo agreement checks came out clean, including the six-seed placebo
 numbers matching exactly between esme-posttrain and grpo-decomp and the
-regenerated pretrain eval agreeing with the baseline harness to about 0.001.
+regenerated pretrain eval agreeing with the baseline harness to about 0.0007.
 
 The repos, in chain order:
 [esme-pretrain](https://github.com/adamthuvesen/esme-pretrain),

@@ -2,48 +2,29 @@
 
 ![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 
-`esme-pretrain` trains `Esme-214M-Base`, a 214M-parameter dense decoder-only
-language model, from scratch on FineWeb-Edu `sample-10BT` and exports it as an
-`llm-infer` bundle.
+`esme-pretrain` trains a small language model from raw text and measures how
+its training recipe behaves as the model grows. It produced `Esme-214M-Base`,
+a 214M-parameter dense decoder trained from scratch on 10.2B tokens of
+FineWeb-Edu, and exports it for the [Esme serving and posttraining
+repos](#related-repositories).
 
-It covers the base-model path: data preparation, tokenizer training, model code,
-training checks, checkpoint evaluation, reporting, and export.
+The model and training code are plain PyTorch, with no `transformers`,
+`Trainer`, or `accelerate`. The throughput benchmark and the scaling study each
+fix their question, method, and predictions in a run card before any GPU time
+is spent, and commit their raw result rows.
 
-The current base checkpoint comes from one accepted run, `pretrain_214m_b200`.
-Its [`run card`](docs/run-cards/pretrain-214m-b200.md), locked config, fixed
-checkpoint eval, bits-per-byte report, acceptance report, export bundle, and
-telemetry plots are the evidence trail.
+## Results
 
-At 214M parameters, Esme is small enough to debug and cheap enough to run end to
-end, while still exercising the real base-model lifecycle: train, evaluate,
-export, post-train, and serve.
+### The base model beats two public baselines
 
-For the model and training design, read
-[`docs/architecture.md`](docs/architecture.md), then run the local checks in
-[Quickstart](#quickstart).
+`Esme-214M-Base` against two pinned public base models:
+[Cerebras-GPT-256M](https://huggingface.co/cerebras/Cerebras-GPT-256M) (5.1B
+training tokens) and [Pythia-160M](https://huggingface.co/EleutherAI/pythia-160m)
+(about 22x Esme's training compute). All three run deterministic fp32 forward
+passes on identical inputs. The harness must first reproduce Cerebras's
+published 0-shot table, and it matched every task within ±0.002.
 
-## Current State
-
-`Esme-214M-Base` is the current base checkpoint: 213,960,192 parameters trained
-on a nominal `10B`-token budget: `10,229,514,240` tokens over `26,015`
-optimizer steps.
-
-The base model is ready for downstream work. The next step is post-training in
-`esme-posttrain`, not another pretraining launch.
-
-## How Good Is It?
-
-The repo's baseline harness scores `Esme-214M-Base` against two pinned public
-base models: [Cerebras-GPT-256M](https://huggingface.co/cerebras/Cerebras-GPT-256M)
-(a similar training budget: 5.1B tokens vs Esme's 10.2B) and
-[Pythia-160M](https://huggingface.co/EleutherAI/pythia-160m) (~29x Esme's
-training tokens). All models run deterministic fp32 forward passes on identical
-inputs. Before recording any Esme score, the harness must reproduce Cerebras's
-published 0-shot table; it matched every task within ±0.002.
-
-0-shot accuracy via a pinned `lm-eval` (best per task in bold):
-
-| Task | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
+| 0-shot task | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
 | --- | --- | --- | --- |
 | arc_challenge | **0.244** | 0.169 | 0.195 |
 | arc_easy | **0.581** | 0.410 | 0.436 |
@@ -54,97 +35,123 @@ published 0-shot table; it matched every task within ±0.002.
 | winogrande | **0.531** | 0.513 | 0.513 |
 | **average** | **0.408** | 0.347 | 0.365 |
 
-Esme wins 6 of 7 downstream tasks against both baselines, including Pythia at
-roughly 22x the training compute. One caveat for reading the table: the task
-suite sits close to FineWeb-Edu's distribution (science and educational
-content), and the one loss, LAMBADA, tests fiction, which FineWeb-Edu barely
-covers. Neither comparison is matched compute: Esme has 2x Cerebras's tokens
-plus a more modern recipe, and Pythia has ~22x Esme's compute.
+Esme wins 6 of 7 tasks. The task suite is close to FineWeb-Edu's educational
+content, and the one loss, LAMBADA, is fiction, which FineWeb-Edu barely
+covers. Bits per byte on identical text shows the same domain split: each model
+predicts the text closest to its own training data best.
 
-Bits per byte on identical text (enforced by hash), each model using its own
-tokenizer, shows the expected home-field split: each model predicts the text
-closest to its own training data best.
-
-| Text slice | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
+| Bits per byte | Esme-214M-Base | Cerebras-GPT-256M | Pythia-160M |
 | --- | --- | --- | --- |
 | FineWeb-Edu validation | **0.901** | 1.065 | 1.017 |
 | Pile test | 1.283 | 0.955 | **0.902** |
 
-Reproduce with the `baseline-gate` / `baseline-eval` / `baseline-compare`
-commands in [Common Commands](#common-commands); no Esme downstream score can
-be produced until the gate passes.
+### Training runs 1.57x faster on the same GPU
+
+A before/after benchmark on one B200 measured the production 214M training
+step at `418,466` tokens/sec, against `266,478` for the code and data path that
+trained the base model. MFU went from 18.6 to 29.1 percent and peak memory from
+40.7 to 27.3 GB. On the production path, one host sync per step, native
+grouped-query attention, and a compiled loss give 1.21x, and pre-tokenized,
+shuffled token shards give a further 1.30x. Five predictions were written before the benchmark ran,
+and the [run card](docs/run-cards/throughput-bench-b200.md) scores each one.
+
+### Deeper models want a lower learning rate
+
+The base model trained at LR `6e-4`. A sweep over four depths at a fixed width
+of 768, each trained for 0.5B tokens, shows that this LR is too low at every
+depth over a short run, and that the best LR is lower for deeper models:
+
+| Model (non-embedding params) | Best LR tested | Loss cost of `6e-4` |
+| --- | --- | ---: |
+| 38M | `4.8e-3` (top of the grid) | 0.139 nats |
+| 76M | `2.4e-3` to `4.8e-3` (tied) | 0.106 nats |
+| 113M | `2.4e-3` | 0.090 nats |
+| 189M (the base model's shape) | `2.4e-3` | 0.087 nats |
+
+The grid steps by 2x and each cell is one seed. Short runs favor high learning
+rates, so the cost at 0.5B tokens likely overestimates what `6e-4` cost the full
+10.2B-token run. The rules for picking each
+size's LR were written down before each batch of runs. The
+[scaling-study run card](docs/run-cards/scaling-study-b200.md#learning-rate-selection)
+records them.
+
+### Next: predict the base model's loss from smaller models
+
+The scaling study fits `L(N, D) = E + A/N^α + B/D^β` on 12 loss points: 3 model
+sizes (38M to 113M non-embedding parameters), each at 4 token budgets and its
+swept LR. It then predicts the base model's validation loss, commits that
+prediction, and only then scores the real checkpoint. Three sizes pin the
+parameter term only loosely, and the 214M point sits 1.7x beyond the largest
+fit size. The base model also trained with a different LR, no data shuffle,
+and a longer warmup, so the test covers transfer across those differences
+too. The
+fit method, the predictions, and the pass criteria are fixed in the
+[run card](docs/run-cards/scaling-study-b200.md), and the launcher refuses to
+score the 214M checkpoint until a matching prediction is committed.
 
 ## Training Telemetry
 
-Telemetry from the `pretrain_214m_b200` run, plotted from the run's
-`metrics.jsonl` and `throughput.csv`:
+The base model's run, plotted from its `metrics.jsonl` and `throughput.csv`:
 
 ![Train and validation loss vs training tokens](assets/fig-pretrain-loss-vs-tokens.svg)
 
 ![Throughput and MFU stability over the run](assets/fig-pretrain-throughput-mfu.svg)
 
-In this run, each in-loop validation point scored different batches, so the
-validation curve carries some sampling noise. The loop now reuses one fixed
-set. The fixed post-run eval in the [run card](docs/run-cards/pretrain-214m-b200.md#accepted-result)
-is the authoritative number.
+Each in-loop validation point in this run scored different batches, so that
+curve carries sampling noise. The fixed post-run eval (CE `2.7756`, `0.9005`
+bits per byte over 10M validation tokens) is the reference number.
 
-## What Is Here
+## How It Works
 
-- FineWeb-Edu streaming with a deterministic document split.
-- A byte-level BPE tokenizer contract with digit splitting.
-- Plain `torch` model and training code, with no `transformers`, `Trainer`, or
-  `accelerate` dependency.
-- Production model code in
-  [`DenseBackbone`](src/esme_pretrain/modeling/backbone.py) and
-  `BackboneConfig`: grouped-query attention, RoPE, RMSNorm, SwiGLU, QK-norm,
-  tied embeddings, and z-loss.
-- Training code with checkpoint/resume checks, fixed validation batches, local
-  metrics, optional W&B logging, mixed precision, and token-accurate resume.
-- Training entrypoints for the current 214M B200 shape, launched with an
-  explicit `--approved` flag.
-- Post-training evaluation, decoded checkpoint samples, bits-per-byte reporting,
-  and `llm-infer` export.
+- **Data.** FineWeb-Edu `sample-10BT` at a pinned revision, split once by a
+  hash of each document id. The base model trained on the tokenized stream in
+  dataset order. The benchmark and the scaling study read uint16 token shards
+  from `pretokenize` in a seeded, resumable order.
+- **Tokenizer.** Byte-level BPE with a 32,768 vocab and digit splitting.
+- **Model.** [`DenseBackbone`](src/esme_pretrain/modeling/backbone.py): 30
+  layers at `d_model=768`, grouped-query attention, RoPE, RMSNorm, SwiGLU,
+  QK-norm, tied embeddings, and z-loss.
+- **Training.** WSD learning-rate schedule, bf16, `torch.compile`, fused AdamW,
+  token-accurate resume, and cooldown branches that fork a shorter run from a
+  longer run's checkpoint.
+- **Evaluation and export.** A fixed, hash-checked validation set for every
+  checkpoint, bits per byte, decoded samples, a public-baseline harness, and an
+  `llm-infer` export bundle with per-file hashes.
+- **Experiments.** Modal launchers for the scaling study and the throughput
+  benchmark. Each one prices itself before it runs, refuses to start without
+  `--approved` and a spend cap, and writes each result to a volume as it
+  finishes.
 
-Active code lives in [`src/esme_pretrain/`](src/esme_pretrain/).
+[`docs/architecture.md`](docs/architecture.md) covers the design and the
+conventions that matter when you compare runs.
 
 ## Quickstart
 
-Install the dev environment and activate the repo's git hooks:
+Install the dev environment and the repo's git hooks:
 
 ```bash
 make install
 ```
 
-Check the repo:
+Run the checks:
 
 ```bash
 uv run ruff check .
 uv run ruff format --check .
 uv run pytest
-uv run esme-pretrain status --json
 ```
 
-Check the pretraining launch config without touching data or GPUs:
+Check the 214M training config without touching data or GPUs:
 
 ```bash
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
 
-That command checks the pinned config, dataset revision, split rule, GPU profile,
-token budget, artifact manifest, and Modal command. It does not download data or
-start training.
-
-## Common Commands
+## Commands
 
 ```bash
-# Evaluate a checkpoint on the fixed validation batches
-uv run esme-pretrain eval-checkpoints \
-  --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
-  --checkpoint <run-dir>/checkpoint.pt --eval-token-budget 10000000 \
-  --output <run-dir>/base-eval.json --json
-
-# Same eval from local copies of the corpus parquet files (no Hub streaming),
-# refusing to score unless the batches match a reference eval's hash
+# Evaluate a checkpoint on the fixed validation batches. With --corpus-parquet,
+# read local corpus files and refuse to score unless the batches match a hash.
 uv run --extra baselines esme-pretrain eval-checkpoints \
   --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
   --checkpoint <run-dir>/checkpoint.pt --eval-token-budget 10000000 \
@@ -157,23 +164,24 @@ uv run esme-pretrain base-acceptance-report \
   --run-dir <run-dir> --eval <run-dir>/base-eval.json \
   --output <run-dir>/base-acceptance-report.md --json
 
-# Pre-tokenize a split into uint16 token shards for ShardBatchLoader
+# Pre-tokenize a split into uint16 token shards
 uv run --extra baselines esme-pretrain pretokenize \
   --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
   --split train --output-dir data/processed/<name> --max-tokens 40000000 --json
 
-# Decoded greedy samples, produced without changing training state
+# Decoded greedy samples
 uv run esme-pretrain sample \
-  --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
+  --checkpoint <checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
   --prompt "Once upon a time" --max-new-tokens 64 \
   --output <run-dir>/samples.md --json
 
-# Export the selected checkpoint for llm-infer
+# Export a checkpoint for llm-infer
 uv run esme-pretrain export \
-  --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
+  --checkpoint <checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \
   --format llm-infer --output exports/pretrain-214m-b200 --json
 
-# Compare the exported bundle against public baselines (needs the baselines extra)
+# Compare the exported bundle against public baselines. baseline-eval refuses
+# to score Esme until baseline-gate has reproduced Cerebras's published numbers.
 uv run --extra baselines esme-pretrain baseline-gate \
   --config configs/baseline_eval.json --output out/gate.json --json
 uv run --extra baselines esme-pretrain baseline-eval \
@@ -183,53 +191,48 @@ uv run esme-pretrain baseline-compare \
   --result out/esme.json --result out/cerebras.json --result out/pythia.json \
   --output out/comparison.md
 
-# Scaling study: price a stage, run it, then fit the law from its rows
-# (design and predictions: docs/run-cards/scaling-study-b200.md)
+# Scaling study: price a stage without spending, then fit the law from its rows
 uv run python scripts/modal_scaling_study.py --stage study --spend-cap-usd <cap> --check-only
 uv run esme-pretrain scaling-fit --results-dir <study-results> --arm L6 --arm L12 --arm L18 \
   --predict-non-embedding-params 188794368 --predict-tokens 10229514240 --output fit.json
 ```
 
-The baseline comparison scores `Esme-214M-Base` against pinned public base
-models (Cerebras-GPT-256M, Pythia-160M) on bits-per-byte over shared text and
-0-shot lm-eval tasks. Esme results only exist after `baseline-gate` reproduces
-Cerebras's published numbers, which proves the harness before it grades Esme.
-
-## Full Pretraining
-
-A full run streams FineWeb-Edu and trains on rented GPUs via Modal. The
-entrypoint only launches with an explicit `--approved` flag. Use a detached Modal
-launch so a local disconnect does not stop training.
-
-B200 was picked because measurements on H100, H200, and B200 showed it had the
-lowest cost per token for this run.
+Full pretraining streams FineWeb-Edu on a rented B200 through Modal, detached so
+a local disconnect does not stop it. The [run
+card](docs/run-cards/pretrain-214m-b200.md) has the launch command, the GPU
+measurements behind the B200 choice, and the abort rules.
 
 ## Documentation
 
-- Full-lifecycle retrospective: [`docs/retrospective.md`](docs/retrospective.md)
-- Current state: [`docs/status.md`](docs/status.md)
-- Model and training design: [`docs/architecture.md`](docs/architecture.md)
-- Export bundle contract: [`docs/bundle-format.md`](docs/bundle-format.md)
+- [`docs/architecture.md`](docs/architecture.md): model, pipeline, and
+  measurement conventions.
+- Run cards, one per experiment:
+  [base model pretraining](docs/run-cards/pretrain-214m-b200.md),
+  [throughput benchmark](docs/run-cards/throughput-bench-b200.md), and
+  [scaling study](docs/run-cards/scaling-study-b200.md).
+- [`docs/bundle-format.md`](docs/bundle-format.md): the export bundle contract.
+- [`docs/retrospective.md`](docs/retrospective.md): the full Esme chain from
+  pretraining through posttraining, RL, and serving.
 
 ## Related Repositories
 
-These repositories are separate codebases connected by model artifacts and
-measurement questions:
+The Esme repositories exchange models through the export bundle:
 
-- [`esme-pretrain`](https://github.com/adamthuvesen/esme-pretrain): trains
-  `Esme-214M-Base` from scratch.
 - [`esme-posttrain`](https://github.com/adamthuvesen/esme-posttrain): adapts
-  the base checkpoint with SFT, DPO, and verifier-backed RLVR.
+  the base model with SFT, DPO, and verifier-rewarded RL.
 - [`llm-infer`](https://github.com/adamthuvesen/llm-infer): loads, serves, and
   benchmarks exported Esme checkpoints.
-- [`llm-rlvr`](https://github.com/adamthuvesen/llm-rlvr): provides a reusable
-  RLVR harness with text-to-SQL as the reference task.
+- [`llm-rlvr`](https://github.com/adamthuvesen/llm-rlvr): a reusable RLVR
+  harness with text-to-SQL as the reference task.
 - [`grpo-decomp`](https://github.com/adamthuvesen/grpo-decomp): measures where
   GRPO gains come from, separating reliability from new capability.
 
 ## References
 
 - Lozhkov et al., [_FineWeb-Edu: the Finest Collection of Educational Content_](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu), 2024.
+- Hoffmann et al., [_Training Compute-Optimal Large Language Models_](https://arxiv.org/abs/2203.15556), 2022.
+- Hägele et al., [_Scaling Laws and Compute-Optimal Training Beyond Fixed Training Durations_](https://arxiv.org/abs/2405.18392), 2024.
+- Besiroglu et al., [_Chinchilla Scaling: A Replication Attempt_](https://arxiv.org/abs/2404.10102), 2024.
 - Qwen Team, [_Qwen3 Technical Report_](https://arxiv.org/abs/2505.09388), 2025.
 - Liu et al., [_MobileLLM: Optimizing Sub-billion Parameter Language Models for On-Device Use Cases_](https://arxiv.org/abs/2402.14905), 2024.
 - Allal et al., [_SmolLM2: When Smol Goes Big_](https://arxiv.org/abs/2502.02737), 2025.
