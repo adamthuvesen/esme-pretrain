@@ -16,7 +16,7 @@ PIPELINE_STAGES: tuple[PipelineStage, ...] = (
     PipelineStage(1, "raw text", "FineWeb-Edu streaming", "available"),
     PipelineStage(2, "data report", "dataset accounting and split report", "available"),
     PipelineStage(3, "tokenizer", "214M B200 byte-level BPE contract", "accepted"),
-    PipelineStage(4, "packed tokens", "streaming token windows", "available"),
+    PipelineStage(4, "packed tokens", "uint16 token shards, seeded window order", "available"),
     PipelineStage(5, "transformer", "214M dense GQA pretrain model", "accepted"),
     PipelineStage(6, "training loop", "B200 Modal pretrain loop", "accepted 10B run"),
     PipelineStage(7, "eval", "fixed checkpoint eval + bpb", "accepted"),
@@ -44,7 +44,8 @@ def current_status() -> ProjectStatus:
         ),
         pipeline=PIPELINE_STAGES,
         next_milestone=(
-            "Posttraining approval and work in esme-posttrain, not another pretrain launch."
+            "Scaling study: fit a scaling law on 38M-113M models at their swept learning "
+            "rates, commit the 214M prediction, then score the base checkpoint."
         ),
         spend_policy=(
             "No FineWeb-Edu, ClimbMix, Modal, GPU, or paid compute without the relevant run "

@@ -1,4 +1,4 @@
-"""Hoffmann et al. (2022) approach-3 scaling-law fit for the Phase 2 study.
+"""Hoffmann et al. (2022) approach-3 scaling-law fit for the scaling study.
 
 L(N, D) = E + A / N^alpha + B / D^beta, fit on log L with a Huber loss and L-BFGS
 from a grid of initializations. The method is pre-registered in
