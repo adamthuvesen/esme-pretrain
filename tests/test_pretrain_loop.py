@@ -419,3 +419,55 @@ def test_wandb_resume_settings_are_forwarded_and_persisted(tmp_path: Path, monke
     assert captured["resume"] == "allow"
     assert logger.wandb_run_id == "x99drn15"
     assert (tmp_path / "wandb-run-id.txt").read_text(encoding="utf-8").strip() == "x99drn15"
+
+
+def test_cooldown_branch_equals_a_from_scratch_run_of_its_schedule(tmp_path: Path) -> None:
+    # The scaling study's branched points stand in for full runs. A branch forked in
+    # the shared peak-LR phase must reproduce the from-scratch run exactly: same
+    # weights, optimizer state, data offset, and LR at every step.
+    scratch_dir, main_dir, branch_dir = tmp_path / "scratch", tmp_path / "main", tmp_path / "branch"
+    schedule = dict(warmup_steps=2, decay_fraction=0.2, learning_rate=1e-3)
+    scratch = _config(scratch_dir, max_steps=10, **schedule)
+    run_pretrain(scratch, _loader(5), logger=RunLogger(scratch_dir, WandbSettings(enabled=False)))
+    main = _config(main_dir, max_steps=20, checkpoint_steps=(8,), **schedule)
+    run_pretrain(main, _loader(5), logger=RunLogger(main_dir, WandbSettings(enabled=False)))
+    branch = _config(
+        branch_dir, max_steps=10, branch_from=main_dir / "checkpoint-step8.pt", **schedule
+    )
+    run_pretrain(branch, _loader(5), logger=RunLogger(branch_dir, WandbSettings(enabled=False)))
+
+    from_scratch = load_pretrain_checkpoint(scratch_dir / "checkpoint.pt")
+    branched = load_pretrain_checkpoint(branch_dir / "checkpoint.pt")
+    assert branched.step == from_scratch.step == 10
+    assert branched.data_offset_tokens == from_scratch.data_offset_tokens
+    for name, tensor in from_scratch.model.state_dict().items():
+        assert torch.equal(tensor, branched.model.state_dict()[name]), name
+
+
+def test_branch_refuses_a_fork_after_the_decay_started(tmp_path: Path) -> None:
+    main = _config(tmp_path, max_steps=10, checkpoint_steps=(9,), warmup_steps=2)
+    run_pretrain(main, _loader(1), logger=RunLogger(tmp_path, WandbSettings(enabled=False)))
+
+    branch = _config(
+        tmp_path / "branch",
+        max_steps=20,
+        warmup_steps=2,
+        branch_from=tmp_path / "checkpoint-step9.pt",
+    )
+    with pytest.raises(ValueError, match="outside the shared peak-LR phase"):
+        run_pretrain(branch, _loader(1))
+
+
+def test_branch_refuses_a_changed_learning_rate(tmp_path: Path) -> None:
+    main = _config(tmp_path, max_steps=10, checkpoint_steps=(4,), warmup_steps=2)
+    run_pretrain(main, _loader(1), logger=RunLogger(tmp_path, WandbSettings(enabled=False)))
+
+    branch = _config(
+        tmp_path / "branch",
+        max_steps=6,
+        warmup_steps=2,
+        learning_rate=2e-3,
+        branch_from=tmp_path / "checkpoint-step4.pt",
+    )
+    with pytest.raises(ValueError, match="branch may change only"):
+        run_pretrain(branch, _loader(1))
