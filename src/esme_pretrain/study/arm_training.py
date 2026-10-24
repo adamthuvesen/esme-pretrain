@@ -50,8 +50,18 @@ def study_validation_batches(
 
 
 def validation_ce(checkpoint: Path, batches: list[Batch], *, device: str) -> float:
+    """Score a checkpoint in true fp32, the path of the accepted eval and the held-out point.
+
+    Training sets TF32 matmuls process-wide (``resolve_device``); left on, study points
+    would be scored on a different numeric path than the 214M point they are compared to.
+    """
     model = load_pretrain_checkpoint(checkpoint, map_location=device).model.to(device)
-    value = mean_ce_loss(model, ((b.input_ids, b.targets) for b in batches), device=device)
+    previous_precision = torch.get_float32_matmul_precision()
+    torch.set_float32_matmul_precision("highest")
+    try:
+        value = mean_ce_loss(model, ((b.input_ids, b.targets) for b in batches), device=device)
+    finally:
+        torch.set_float32_matmul_precision(previous_precision)
     if value is None:
         raise ValueError(f"no validation targets for {checkpoint}")
     return value
@@ -69,7 +79,7 @@ def train_study_arm(
     device: str,
     dtype: str = "bfloat16",
     use_compile: bool = True,
-    commit_results: Callable[[], None] = lambda: None,
+    commit_results: Callable[[], None],
     provenance: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     tokenizer_sha256 = file_sha256(tokenizer_path)
