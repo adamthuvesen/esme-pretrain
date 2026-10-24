@@ -142,7 +142,11 @@ def load_loss_points(path: Path) -> list[LossPoint]:
 
 
 def load_study_loss_points(results_dir: Path, arms: tuple[str, ...]) -> list[LossPoint]:
-    """One loss point per run row the study wrote under ``<results_dir>/<arm>/``."""
+    """One loss point per run row the study wrote under ``<results_dir>/<arm>/``.
+
+    An arm whose container stopped part way has some rows but not all; each row
+    names the arm's full run set, so a partial arm is refused, not fit.
+    """
     if not arms:
         raise ValueError("--results-dir needs at least one --arm")
     points = []
@@ -150,10 +154,17 @@ def load_study_loss_points(results_dir: Path, arms: tuple[str, ...]) -> list[Los
         rows = sorted((results_dir / arm).glob("*.json"))
         if not rows:
             raise ValueError(f"no result rows for arm {arm!r} in {results_dir / arm}")
-        for row_path in rows:
-            row = json.loads(row_path.read_text())
+        arm_rows = [json.loads(row_path.read_text()) for row_path in rows]
+        for row_path, row in zip(rows, arm_rows, strict=True):
             if row.get("arm") != arm:
                 raise ValueError(f"{row_path} belongs to arm {row.get('arm')!r}, not {arm!r}")
+            if "arm_runs" not in row:
+                raise ValueError(f"{row_path} has no arm_runs field to check the arm is complete")
+        written = sorted(row["run"] for row in arm_rows)
+        expected = sorted(arm_rows[0]["arm_runs"])
+        if written != expected:
+            raise ValueError(f"arm {arm!r} is incomplete: wrote runs {written}, planned {expected}")
+        for row in arm_rows:
             points.append(
                 LossPoint(
                     arm=f"{arm}/{row['run']}",

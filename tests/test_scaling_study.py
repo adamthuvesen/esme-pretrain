@@ -134,6 +134,7 @@ def test_study_arm_trains_main_and_branch_and_writes_scored_rows(tmp_path: Path)
     )
 
     assert [row["run"] for row in rows] == ["main", "branch-5steps"]
+    assert all(row["arm_runs"] == ["main", "branch-5steps"] for row in rows)
     assert rows[1]["fork_step"] == 4 and rows[1]["tokens"] == 5 * 32
     assert all(math.isfinite(row["val_ce"]) for row in rows)
     assert len(commits) == 2
@@ -152,7 +153,25 @@ def test_check_only_prices_a_stage_without_spending(capsys) -> None:
     assert report["worst_case_cost_usd"] <= 20
 
 
-def test_study_stage_refuses_a_spend_cap_below_its_worst_case(capsys) -> None:
+def _passing_lr_gate(tmp_path: Path, monkeypatch) -> None:
+    gate = tmp_path / "lr-gate.json"
+    rows = [{"learning_rate": 6e-4, "val_ce": 3.50}, {"learning_rate": 1.2e-3, "val_ce": 3.49}]
+    gate.write_text(json.dumps({"outcomes": {"lr": {"rows": rows}}}))
+    monkeypatch.setattr(scaling_study, "LR_GATE_RESULT", gate)
+
+
+def test_study_stage_refuses_the_lr_that_failed_the_gate(capsys) -> None:
+    # The recorded gate put 6e-4 0.093 nats behind 1.2e-3, past the 0.02 stop rule.
+    code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "1000", "--check-only"])
+
+    assert code == 2
+    assert "LR 0.0006 is 0.093 nats worse" in capsys.readouterr().err
+
+
+def test_study_stage_refuses_a_spend_cap_below_its_worst_case(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    _passing_lr_gate(tmp_path, monkeypatch)
     code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "20", "--check-only"])
 
     assert code == 2
@@ -264,7 +283,10 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
     assert report["prediction"]["val_ce"] == 2.8
 
 
-def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
+def test_study_stage_no_longer_scores_the_heldout_checkpoint(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    _passing_lr_gate(tmp_path, monkeypatch)
     code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "1000", "--check-only"])
 
     assert code == 0

@@ -35,9 +35,11 @@ STUDY_VOLUME = "esme-pretrain-study"
 HELDOUT_VOLUME = "llm-pretrain-214m-b200"
 MAX_ARM_TIMEOUT_SECONDS = 5 * 3600
 ARM_TIMEOUT_SLACK_SECONDS = 20 * 60
-# Leaves room under the shared account's GPU quota for other work. The study
-# stage's held-out eval (at most 30 minutes) runs beside these as a fifth GPU.
+# Leaves room under the shared account's GPU quota for other work.
 MAX_CONCURRENT_ARMS = 4
+LR_GATE_RESULT = REPO_ROOT / "docs/results/scaling-study/lr-gate.json"
+# The run card's pre-registered stop rule for the LR gate.
+LR_GATE_MAX_GAP_NATS = 0.02
 ARM_BUDGET_EXCEEDED_EXIT = 3
 HELDOUT_TIMEOUT_SECONDS = 30 * 60
 DEFAULT_OUTPUT_DIR = Path("runs/scaling-study")
@@ -123,6 +125,8 @@ def launch(argv: list[str] | None = None) -> int:
             else None
         )
         arms = () if with_heldout else plan.arms_for(args.stage, tuple(args.arm))
+        if args.stage == "study":
+            _check_lr_gate(arms, LR_GATE_RESULT)
         usd_per_hour = float(base_payload["runtime"]["gpu_profiles"][STUDY_GPU]["usd_per_hour"])
         timeouts = {
             arm.arm: arm_timeout_seconds(arm, assumed_tflops=args.assumed_tflops) for arm in arms
@@ -220,6 +224,28 @@ def launch(argv: list[str] | None = None) -> int:
         print(f"scaling study: arms did not complete: {failed}", file=sys.stderr)
         return 1
     return 0
+
+
+def _check_lr_gate(arms: tuple[StudyArm, ...], gate_result: Path) -> None:
+    """Refuse study arms whose LR the LR-gate rows put past the stop rule."""
+    if not gate_result.is_file():
+        raise ValueError(f"the study stage needs the LR-gate result: {gate_result}")
+    gate = json.loads(gate_result.read_text(encoding="utf-8"))
+    val_ce_by_lr = {
+        float(row["learning_rate"]): float(row["val_ce"])
+        for outcome in gate["outcomes"].values()
+        for row in outcome["rows"]
+    }
+    best = min(val_ce_by_lr.values())
+    for arm in arms:
+        for run in arm.runs:
+            gap = val_ce_by_lr.get(run.learning_rate, float("inf")) - best
+            if gap > LR_GATE_MAX_GAP_NATS:
+                raise ValueError(
+                    f"{arm.arm}/{run.run}: LR {run.learning_rate:g} is {gap:.3f} nats worse "
+                    f"than the best LR-gate row in {gate_result}; the stop rule is "
+                    f"{LR_GATE_MAX_GAP_NATS} nats, so the LR decision goes back to Adam"
+                )
 
 
 def _written_prediction(

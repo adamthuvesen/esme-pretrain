@@ -121,6 +121,7 @@ def train_study_arm(
             "arm": arm.arm,
             "stage": arm.stage,
             "run": run.run,
+            "arm_runs": [arm_run.run for arm_run in arm.runs],
             "shape": run.model.name,
             "non_embedding_params": run.non_embedding_params,
             "total_params": run.model.parameter_count()["total"],

@@ -151,17 +151,15 @@ def test_scaling_fit_cli_rejects_malformed_points_file(tmp_path, capsys) -> None
     assert not output_path.exists()
 
 
-def test_scaling_fit_reads_study_result_rows_per_arm(tmp_path) -> None:
-    # The study writes <arm>/<run>.json rows with many fields; the fit must take one
-    # point per run, labeled arm/run, and ignore the per-run metrics files.
-    points = study_points()
+def write_study_rows(results_dir, points) -> None:
     for index, point in enumerate(points):
         arm = f"L{index // 4}"
-        row_dir = tmp_path / arm
+        row_dir = results_dir / arm
         row_dir.mkdir(exist_ok=True)
         row = {
             "arm": arm,
             "run": f"run{index % 4}",
+            "arm_runs": [f"run{run}" for run in range(4)],
             "non_embedding_params": point.non_embedding_params,
             "tokens": point.tokens,
             "val_ce": point.val_ce,
@@ -169,6 +167,41 @@ def test_scaling_fit_reads_study_result_rows_per_arm(tmp_path) -> None:
         }
         (row_dir / f"run{index % 4}.json").write_text(json.dumps(row))
         (row_dir / f"run{index % 4}-metrics.jsonl").write_text("{}\n")
+
+
+def test_scaling_fit_refuses_an_arm_missing_a_planned_run(tmp_path, capsys) -> None:
+    # A container that stops after some branches leaves a partial arm; with the
+    # other arms the fit would still clear its 5-point minimum on fewer points.
+    write_study_rows(tmp_path, study_points())
+    (tmp_path / "L1" / "run3.json").unlink()
+
+    exit_code = main(
+        [
+            "scaling-fit",
+            "--results-dir",
+            str(tmp_path),
+            "--arm",
+            "L0",
+            "--arm",
+            "L1",
+            "--predict-non-embedding-params",
+            str(HELD_OUT_NON_EMBEDDING_PARAMS),
+            "--predict-tokens",
+            str(HELD_OUT_TOKENS),
+            "--output",
+            str(tmp_path / "fit.json"),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "arm 'L1' is incomplete" in capsys.readouterr().err
+    assert not (tmp_path / "fit.json").exists()
+
+
+def test_scaling_fit_reads_study_result_rows_per_arm(tmp_path) -> None:
+    # The study writes <arm>/<run>.json rows with many fields; the fit must take one
+    # point per run, labeled arm/run, and ignore the per-run metrics files.
+    write_study_rows(tmp_path, study_points())
     output_path = tmp_path / "fit.json"
 
     exit_code = main(
