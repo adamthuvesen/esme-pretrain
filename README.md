@@ -1,6 +1,6 @@
 # esme-pretrain
 
-![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 
 `esme-pretrain` trains `Esme-214M-Base`, a 214M-parameter dense decoder-only
 language model, from scratch on FineWeb-Edu `sample-10BT` and exports it as an

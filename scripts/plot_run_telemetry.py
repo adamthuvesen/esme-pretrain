@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.11"
+# requires-python = ">=3.13"
 # dependencies = [
 #   "plotly>=6.1",
 #   "kaleido>=1.0",
