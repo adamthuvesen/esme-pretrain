@@ -1,0 +1,52 @@
+{
+  "study_id": "scaling_study_d768",
+  "run_card": "docs/run-cards/scaling-study-b200.md",
+  "base_config": "configs/pretrain_214m_b200.json",
+  "optimizer": {
+    "learning_rate": 0.0006,
+    "min_lr_ratio": 0.1,
+    "warmup_steps": 200,
+    "decay_fraction": 0.2,
+    "weight_decay": 0.1,
+    "grad_clip": 1.0,
+    "micro_batch_size": 24,
+    "grad_accum_steps": 16
+  },
+  "data": {
+    "volume": "esme-pretrain-study",
+    "train_manifest": "shards/train-manifest.json",
+    "validation_manifest": "shards/validation-manifest.json",
+    "tokenizer": "tokenizer.json",
+    "shuffle_seed": 0
+  },
+  "eval": {
+    "eval_token_budget": 10000000,
+    "batch_size": 4,
+    "expected_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6"
+  },
+  "heldout": {
+    "volume": "llm-pretrain-214m-b200",
+    "checkpoint": "pretrain_214m_b200/checkpoint.pt",
+    "tokens": 10229514240
+  },
+  "shapes": {
+    "d768-L6": {"embedding_dim": 768, "layers": 6, "heads": 12, "kv_heads": 4, "feedforward_dim": 2048},
+    "d768-L12": {"embedding_dim": 768, "layers": 12, "heads": 12, "kv_heads": 4, "feedforward_dim": 2048},
+    "d768-L18": {"embedding_dim": 768, "layers": 18, "heads": 12, "kv_heads": 4, "feedforward_dim": 2048},
+    "d576-L21": {"embedding_dim": 576, "layers": 21, "heads": 9, "kv_heads": 3, "feedforward_dim": 1536},
+    "d1152-L5": {"embedding_dim": 1152, "layers": 5, "heads": 18, "kv_heads": 6, "feedforward_dim": 3072}
+  },
+  "arms": [
+    {"arm": "smoke", "stage": "smoke", "shape": "d768-L6", "steps": 40, "warmup_steps": 10, "branch_steps": [20], "seed": 0},
+    {"arm": "lr-3e-4", "stage": "lr-gate", "shape": "d768-L6", "tokens": 500000000, "learning_rate": 0.0003, "seed": 0},
+    {"arm": "lr-6e-4", "stage": "lr-gate", "shape": "d768-L6", "tokens": 500000000, "learning_rate": 0.0006, "seed": 0},
+    {"arm": "lr-1.2e-3", "stage": "lr-gate", "shape": "d768-L6", "tokens": 500000000, "learning_rate": 0.0012, "seed": 0},
+    {"arm": "L18", "stage": "study", "shape": "d768-L18", "multiple": 40, "branch_multiples": [5, 10, 20], "seed": 0},
+    {"arm": "L12", "stage": "study", "shape": "d768-L12", "multiple": 40, "branch_multiples": [5, 10, 20], "seed": 0},
+    {"arm": "L6", "stage": "study", "shape": "d768-L6", "multiple": 40, "branch_multiples": [5, 10, 20], "seed": 0},
+    {"arm": "L12-scratch-10x", "stage": "study", "shape": "d768-L12", "multiple": 10, "seed": 0},
+    {"arm": "deep-thin", "stage": "study", "shape": "d576-L21", "multiple": 20, "seed": 0},
+    {"arm": "wide-shallow", "stage": "study", "shape": "d1152-L5", "multiple": 20, "seed": 0},
+    {"arm": "deep-thin-seed1", "stage": "study", "shape": "d576-L21", "multiple": 20, "seed": 1}
+  ]
+}
