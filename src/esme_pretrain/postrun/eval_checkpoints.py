@@ -52,6 +52,10 @@ class EvalCheckpointConfig:
     device: str = "cpu"
     batch_size: int = 4
     max_eval_batches: int | None = None
+    # Local copies of the corpus parquet files, read instead of streaming the Hub.
+    corpus_parquet_files: tuple[Path, ...] = ()
+    # Refuse to score or write anything unless the fixed batches hash to this value.
+    expected_token_batch_sha256: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,11 +97,18 @@ def run_eval_checkpoints(config: EvalCheckpointConfig) -> dict[str, Any]:
         eval_token_budget=config.eval_token_budget,
         batch_size=config.batch_size,
         max_eval_batches=config.max_eval_batches,
+        parquet_files=config.corpus_parquet_files,
     )
     if not batches:
         raise ValueError("validation slice did not produce any full eval batches")
 
     token_batch_sha256 = hash_eval_batches(batches)
+    expected = config.expected_token_batch_sha256
+    if expected is not None and token_batch_sha256 != expected:
+        raise ValueError(
+            f"fixed eval batches hash to {token_batch_sha256}, expected {expected}; "
+            "the validation tokens differ from the reference eval"
+        )
     results = [
         evaluate_checkpoint(
             path,
@@ -151,9 +162,12 @@ def build_fixed_validation_batches(
     eval_token_budget: int,
     batch_size: int,
     max_eval_batches: int | None = None,
+    parquet_files: Sequence[Path] = (),
 ) -> list[FixedEvalBatch]:
     eos_id = tokenizer.token_to_id("<eos>")
-    token_bytes = tokenized_validation_stream(config, tokenizer, eos_id=eos_id)
+    token_bytes = tokenized_validation_stream(
+        config, tokenizer, eos_id=eos_id, parquet_files=parquet_files
+    )
     window_batches = batch_token_byte_windows(
         token_bytes,
         window=model_config.context_length + 1,
@@ -177,9 +191,13 @@ def build_fixed_validation_batches(
 
 
 def tokenized_validation_stream(
-    config: PretrainLaunchConfig, tokenizer: SupportsEncode, *, eos_id: int | None
+    config: PretrainLaunchConfig,
+    tokenizer: SupportsEncode,
+    *,
+    eos_id: int | None,
+    parquet_files: Sequence[Path] = (),
 ) -> Iterator[tuple[int, int]]:
-    for text in document_text_stream(config, split="validation"):
+    for text in document_text_stream(config, split="validation", parquet_files=parquet_files):
         encoding = tokenizer.encode(text)
         ids = [int(token_id) for token_id in _encoding_ids(encoding)]
         byte_counts = token_byte_counts(text, encoding, token_count=len(ids))

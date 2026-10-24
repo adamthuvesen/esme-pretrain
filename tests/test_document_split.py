@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 from esme_pretrain.data import corpus_stream
@@ -134,3 +135,40 @@ def test_document_text_stream_loads_configured_dataset_and_reuses_split(monkeypa
     assert "low quality" not in train + validation
     assert set(train).isdisjoint(validation)
     assert set(train) | set(validation) == {f"text-{index}" for index in range(20)}
+
+
+def test_local_parquet_files_are_read_in_sorted_order(tmp_path: Path, monkeypatch) -> None:
+    # The Hub stream reads the subset's files in sorted path order; local copies must
+    # match it or the selected validation documents change.
+    files = [tmp_path / name for name in ("001_00000.parquet", "000_00000.parquet")]
+    for path in files:
+        path.write_bytes(b"")
+    captured: dict[str, object] = {}
+
+    def load_dataset(builder: str, **kwargs):
+        captured.update({"builder": builder, **kwargs})
+        return [{"id": "doc", "text": "text", "int_score": 3}]
+
+    monkeypatch.setattr(
+        corpus_stream.importlib,
+        "import_module",
+        lambda name: SimpleNamespace(load_dataset=load_dataset),
+    )
+    config = SimpleNamespace(
+        payload={
+            "dataset": {"filters": {"min_int_score": 3}, "id_field": "id", "text_field": "text"},
+            "split": {"seed": 0, "validation_modulo": 1, "validation_remainder": 0},
+        }
+    )
+
+    texts = list(
+        corpus_stream.document_text_stream(config, split="validation", parquet_files=files)
+    )
+
+    assert texts == ["text"]
+    assert captured == {
+        "builder": "parquet",
+        "data_files": [str(tmp_path / "000_00000.parquet"), str(tmp_path / "001_00000.parquet")],
+        "split": "train",
+        "streaming": True,
+    }

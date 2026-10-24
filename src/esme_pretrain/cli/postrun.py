@@ -46,6 +46,18 @@ def add_postrun_parsers(subparsers: argparse._SubParsersAction) -> None:
         help="Optional smoke/debug cap on eval batches.",
     )
     eval_checkpoints.add_argument(
+        "--corpus-parquet",
+        action="append",
+        type=Path,
+        default=[],
+        help="Local corpus parquet file to read instead of streaming the Hub. May be repeated.",
+    )
+    eval_checkpoints.add_argument(
+        "--expected-token-batch-sha256",
+        default=None,
+        help="Fail unless the fixed eval batches match this hash from a reference eval.",
+    )
+    eval_checkpoints.add_argument(
         "--json", action="store_true", help="Emit machine-readable result."
     )
     eval_checkpoints.set_defaults(handler=handle_eval_checkpoints)
@@ -112,6 +124,8 @@ def handle_eval_checkpoints(args: argparse.Namespace) -> int:
                 device=args.device,
                 batch_size=args.batch_size,
                 max_eval_batches=args.max_eval_batches,
+                corpus_parquet_files=tuple(args.corpus_parquet),
+                expected_token_batch_sha256=args.expected_token_batch_sha256,
             )
         )
     except ValueError as error:

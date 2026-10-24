@@ -254,6 +254,37 @@ def test_two_small_checkpoints_evaluate_on_identical_token_batches(tmp_path: Pat
     )
 
 
+def test_eval_refuses_batches_that_differ_from_the_reference_hash(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _small_config()
+    checkpoint = tmp_path / "checkpoint.pt"
+    _save_checkpoint(checkpoint, config, step=1)
+    monkeypatch.setattr(
+        eval_checkpoints,
+        "load_pretrain_config",
+        lambda _path: SimpleNamespace(payload={"model": config.to_dict()}),
+    )
+    monkeypatch.setattr(eval_checkpoints, "load_tokenizer", lambda _path: object())
+    monkeypatch.setattr(
+        eval_checkpoints, "build_fixed_validation_batches", lambda *_a, **_k: _fixed_batches(config)
+    )
+    output = tmp_path / "eval.json"
+
+    with pytest.raises(ValueError, match="validation tokens differ from the reference"):
+        eval_checkpoints.run_eval_checkpoints(
+            eval_checkpoints.EvalCheckpointConfig(
+                config_path=tmp_path / "config.json",
+                tokenizer_path=tmp_path / "tokenizer.json",
+                checkpoint_paths=(checkpoint,),
+                eval_token_budget=32,
+                output_path=output,
+                expected_token_batch_sha256="0" * 64,
+            )
+        )
+    assert not output.exists()
+
+
 def test_token_byte_counts_use_utf8_lengths() -> None:
     class Encoding:
         offsets = [(0, 1), (1, 2), (2, 3)]
@@ -274,7 +305,7 @@ def test_tokenized_validation_stream_uses_shared_corpus_stream(monkeypatch) -> N
     config = object()
     captured: dict[str, object] = {}
 
-    def fake_document_text_stream(stream_config, *, split: str):
+    def fake_document_text_stream(stream_config, *, split: str, parquet_files=()):
         captured["config"] = stream_config
         captured["split"] = split
         yield "abc"
