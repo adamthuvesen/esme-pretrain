@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import struct
 from collections.abc import Iterable
 from contextlib import nullcontext
 from typing import Any
@@ -39,3 +41,13 @@ def mean_ce_loss(
     if total_targets == 0:
         return None
     return weighted_total / total_targets
+
+
+def hash_eval_batches(batches: Iterable[Any]) -> str:
+    digest = hashlib.sha256()
+    for batch in batches:
+        for tensor in (batch.input_ids, batch.targets):
+            cpu = tensor.detach().to(device="cpu", dtype=torch.long).contiguous()
+            values = cpu.view(-1).tolist()
+            digest.update(struct.pack(f"<{len(values)}q", *values))
+    return digest.hexdigest()

@@ -11,6 +11,7 @@ import numpy as np
 from esme_pretrain.data.token_shards import load_token_shard_manifest
 from esme_pretrain.torch import torch
 from esme_pretrain.training.data_stream import Batch, prefetch_device_batches
+from esme_pretrain.training.eval_batch import hash_eval_batches
 
 
 class ShardBatchLoader:
@@ -32,6 +33,8 @@ class ShardBatchLoader:
         self,
         manifest_path: Path,
         *,
+        vocab_size: int,
+        tokenizer_sha256: str,
         batch_size: int,
         context_length: int,
         device: str | torch.device = "cpu",
@@ -48,6 +51,16 @@ class ShardBatchLoader:
         if prefetch_batches < 1:
             raise ValueError("prefetch_batches must be at least 1")
         self.manifest = load_token_shard_manifest(manifest_path, verify_hashes=verify_hashes)
+        if self.manifest.vocab_size != vocab_size:
+            raise ValueError(
+                f"token shards in {manifest_path} use vocab {self.manifest.vocab_size}, "
+                f"the model uses {vocab_size}"
+            )
+        if self.manifest.tokenizer_sha256 != tokenizer_sha256:
+            raise ValueError(
+                f"token shards in {manifest_path} were written with tokenizer "
+                f"{self.manifest.tokenizer_sha256[:12]}..., not {tokenizer_sha256[:12]}..."
+            )
         self.batch_size = batch_size
         self.context_length = context_length
         self.window = context_length + 1
@@ -130,3 +143,55 @@ class ShardBatchLoader:
             offset = (int(window_id) - int(shard_start)) * self.window
             rows[row] = self._shards[shard_id][offset : offset + self.window]
         return rows
+
+
+def fixed_validation_batches(
+    manifest_path: Path,
+    *,
+    vocab_size: int,
+    tokenizer_sha256: str,
+    context_length: int,
+    batch_size: int,
+    eval_token_budget: int,
+    expected_token_batch_sha256: str | None,
+    device: str | torch.device = "cpu",
+) -> list[Batch]:
+    """Read the first validation windows, in order, until ``eval_token_budget`` input tokens.
+
+    Packing matches ``eval-checkpoints``: sequential ``context_length + 1`` windows,
+    ``batch_size`` per batch, stopping at the first batch that reaches the budget. With
+    ``expected_token_batch_sha256`` the batches must hash to a reference eval's value,
+    which proves they are the same tokens.
+    """
+    loader = ShardBatchLoader(
+        manifest_path,
+        vocab_size=vocab_size,
+        tokenizer_sha256=tokenizer_sha256,
+        batch_size=batch_size,
+        context_length=context_length,
+        device=device,
+        pin_memory=False,
+        prefetch_batches=2,
+    )
+    batches: list[Batch] = []
+    eval_tokens = 0
+    iterator = iter(loader)
+    try:
+        for batch in iterator:
+            batches.append(batch)
+            eval_tokens += int(batch.input_ids.numel())
+            if eval_tokens >= eval_token_budget:
+                break
+    finally:
+        iterator.close()
+    if eval_tokens < eval_token_budget:
+        raise ValueError(
+            f"validation shards hold {eval_tokens} eval tokens, {eval_token_budget} required"
+        )
+    if expected_token_batch_sha256 is not None:
+        actual = hash_eval_batches(batches)
+        if actual != expected_token_batch_sha256:
+            raise ValueError(
+                f"validation batches hash to {actual}, expected {expected_token_batch_sha256}"
+            )
+    return batches

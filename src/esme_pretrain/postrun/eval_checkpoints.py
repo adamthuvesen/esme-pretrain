@@ -4,7 +4,6 @@ import hashlib
 import itertools
 import json
 import math
-import struct
 import time
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass
@@ -16,7 +15,7 @@ from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.pretrain_run import PretrainLaunchConfig, load_pretrain_config
 from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
-from esme_pretrain.training.eval_batch import mean_ce_loss
+from esme_pretrain.training.eval_batch import hash_eval_batches, mean_ce_loss
 
 FINAL_WITHIN_BEST_MARGIN = 0.02
 
@@ -268,16 +267,6 @@ def batch_token_byte_windows(
             torch.tensor(token_ids, dtype=torch.long).view(batch_size, window),
             torch.tensor(byte_counts, dtype=torch.long).view(batch_size, window),
         )
-
-
-def hash_eval_batches(batches: Iterable[FixedEvalBatch]) -> str:
-    digest = hashlib.sha256()
-    for batch in batches:
-        for tensor in (batch.input_ids, batch.targets):
-            cpu = tensor.detach().to(device="cpu", dtype=torch.long).contiguous()
-            values = cpu.view(-1).tolist()
-            digest.update(struct.pack(f"<{len(values)}q", *values))
-    return digest.hexdigest()
 
 
 @torch.no_grad()

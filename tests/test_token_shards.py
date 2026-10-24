@@ -9,9 +9,10 @@ import pytest
 from esme_pretrain.data.token_shards import manifest_path_for, write_token_shards
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.torch import torch
+from esme_pretrain.training.eval_batch import hash_eval_batches
 from esme_pretrain.training.metrics import RunLogger, WandbSettings
 from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
-from esme_pretrain.training.shard_loader import ShardBatchLoader
+from esme_pretrain.training.shard_loader import ShardBatchLoader, fixed_validation_batches
 
 EOS_ID = 0
 VOCAB_SIZE = 128
@@ -55,7 +56,13 @@ def _write(output_dir: Path, documents: list[str], **overrides) -> dict:
 
 
 def _loader(output_dir: Path, **overrides) -> ShardBatchLoader:
-    kwargs = dict(batch_size=2, context_length=4, device="cpu")
+    kwargs = dict(
+        vocab_size=VOCAB_SIZE,
+        tokenizer_sha256="0" * 64,
+        batch_size=2,
+        context_length=4,
+        device="cpu",
+    )
     kwargs.update(overrides)
     return ShardBatchLoader(manifest_path_for(output_dir, "train"), **kwargs)
 
@@ -201,6 +208,8 @@ def test_run_pretrain_resume_continues_the_shard_window_order(tmp_path: Path) ->
     def loader() -> RecordingShardLoader:
         return RecordingShardLoader(
             manifest_path_for(shard_dir, "train"),
+            vocab_size=VOCAB_SIZE,
+            tokenizer_sha256="0" * 64,
             batch_size=4,
             context_length=16,
             device="cpu",
@@ -228,3 +237,45 @@ def test_run_pretrain_resume_continues_the_shard_window_order(tmp_path: Path) ->
     windows_per_step = 8
     first_tail = first_loader.seen_input_ids[3 * windows_per_step : 6 * windows_per_step]
     assert resumed_loader.seen_input_ids[: 3 * windows_per_step] == first_tail
+
+
+def test_loader_refuses_shards_from_another_vocabulary_or_tokenizer(tmp_path: Path) -> None:
+    _write(tmp_path, _documents(40, seed=2))
+
+    with pytest.raises(ValueError, match="the model uses"):
+        _loader(tmp_path, vocab_size=VOCAB_SIZE + 1)
+    with pytest.raises(ValueError, match="were written with tokenizer"):
+        _loader(tmp_path, tokenizer_sha256="1" * 64)
+
+
+def test_fixed_validation_batches_match_sequential_packing_and_check_the_hash(
+    tmp_path: Path,
+) -> None:
+    _write(tmp_path, _documents(200, seed=3), shard_tokens=10_000)
+    reference = _rows(_loader(tmp_path, batch_size=2))[:6]
+    kwargs = dict(
+        vocab_size=VOCAB_SIZE,
+        tokenizer_sha256="0" * 64,
+        context_length=4,
+        batch_size=2,
+        eval_token_budget=24,
+    )
+
+    batches = fixed_validation_batches(
+        manifest_path_for(tmp_path, "train"), expected_token_batch_sha256=None, **kwargs
+    )
+    windows = [
+        row
+        for batch in batches
+        for row in torch.cat([batch.input_ids, batch.targets[:, -1:]], dim=1).tolist()
+    ]
+    assert windows == reference
+    digest = hash_eval_batches(batches)
+    again = fixed_validation_batches(
+        manifest_path_for(tmp_path, "train"), expected_token_batch_sha256=digest, **kwargs
+    )
+    assert len(again) == 3
+    with pytest.raises(ValueError, match="validation batches hash to"):
+        fixed_validation_batches(
+            manifest_path_for(tmp_path, "train"), expected_token_batch_sha256="0" * 64, **kwargs
+        )
