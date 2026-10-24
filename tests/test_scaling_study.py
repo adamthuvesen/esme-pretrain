@@ -146,23 +146,33 @@ def test_study_arm_trains_main_and_branch_and_writes_scored_rows(tmp_path: Path)
 
 
 def test_check_only_prices_a_stage_without_spending(capsys) -> None:
-    code = scaling_study.launch(["--stage", "lr-gate", "--spend-cap-usd", "20", "--check-only"])
+    gate_arms = ["lr-3e-4", "lr-6e-4", "lr-1.2e-3"]
+    selection = [option for arm in gate_arms for option in ("--arm", arm)]
+    code = scaling_study.launch(
+        ["--stage", "lr-gate", *selection, "--spend-cap-usd", "20", "--check-only"]
+    )
 
     assert code == 0
     report = json.loads(capsys.readouterr().out)
-    assert [arm["arm"] for arm in report["arms"]] == ["lr-3e-4", "lr-6e-4", "lr-1.2e-3"]
+    assert [arm["arm"] for arm in report["arms"]] == gate_arms
     assert report["worst_case_cost_usd"] <= 20
 
 
 def _passing_lr_gate(tmp_path: Path, monkeypatch) -> None:
     gate = tmp_path / "lr-gate.json"
-    rows = [{"learning_rate": 6e-4, "val_ce": 3.50}, {"learning_rate": 1.2e-3, "val_ce": 3.49}]
+    rows = [
+        {"shape": "d768-L6", "non_embedding_params": 37759488, "learning_rate": lr, "val_ce": ce}
+        for lr, ce in ((6e-4, 3.50), (1.2e-3, 3.49))
+    ]
     gate.write_text(json.dumps({"outcomes": {"lr": {"rows": rows}}}))
-    monkeypatch.setattr(scaling_study, "LR_GATE_RESULT", gate)
+    monkeypatch.setattr(scaling_study, "LR_GATE_RESULTS", (gate,))
 
 
-def test_study_stage_refuses_the_lr_that_failed_the_gate(capsys) -> None:
-    # The recorded gate put 6e-4 0.093 nats behind 1.2e-3, past the 0.02 stop rule.
+def test_study_stage_refuses_the_lr_that_failed_the_gate(monkeypatch, capsys) -> None:
+    # The recorded gate put 6e-4 0.093 nats behind 1.2e-3 at L6, past the 0.02 stop
+    # rule; L12 and L18 were not swept there, so they are judged by L6, the nearest.
+    gate = scaling_study.LR_GATE_RESULTS[0]
+    monkeypatch.setattr(scaling_study, "LR_GATE_RESULTS", (gate,))
     code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "1000", "--check-only"])
 
     assert code == 2
@@ -323,9 +333,9 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
 
 
 def test_committed_in_head_matches_the_tracked_blob(tmp_path: Path) -> None:
-    tracked = scaling_study.REPO_ROOT / "configs" / "scaling_study.json"
+    tracked = scaling_study.REPO_ROOT / ".python-version"
     assert scaling_study._committed_in_head(tracked)
-    copy = tmp_path / "scaling_study.json"
+    copy = tmp_path / ".python-version"
     copy.write_bytes(tracked.read_bytes())
     assert not scaling_study._committed_in_head(copy)
 
