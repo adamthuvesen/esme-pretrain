@@ -25,8 +25,15 @@ def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
         "scaling-fit",
         help="Fit the pre-registered scaling law and bootstrap one held-out prediction.",
     )
+    source = scaling_fit.add_mutually_exclusive_group(required=True)
+    source.add_argument("--points", type=Path, help="JSON list of loss points to fit.")
+    source.add_argument(
+        "--results-dir",
+        type=Path,
+        help="Study results directory (<arm>/<run>.json rows); fit the --arm rows.",
+    )
     scaling_fit.add_argument(
-        "--points", required=True, type=Path, help="JSON list of loss points to fit."
+        "--arm", action="append", default=[], help="Arm to fit from --results-dir. Repeat."
     )
     scaling_fit.add_argument(
         "--predict-non-embedding-params",
@@ -53,7 +60,10 @@ def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
 
 def handle_scaling_fit(args: argparse.Namespace) -> int:
     try:
-        points = load_loss_points(args.points)
+        if args.points is not None:
+            points = load_loss_points(args.points)
+        else:
+            points = load_study_loss_points(args.results_dir, tuple(args.arm))
         bootstrap = bootstrap_prediction(
             points,
             non_embedding_params=args.predict_non_embedding_params,
@@ -128,4 +138,28 @@ def load_loss_points(path: Path) -> list[LossPoint]:
                 f"{', '.join(LOSS_POINT_FIELDS)}"
             )
         points.append(LossPoint(**record))
+    return points
+
+
+def load_study_loss_points(results_dir: Path, arms: tuple[str, ...]) -> list[LossPoint]:
+    """One loss point per run row the study wrote under ``<results_dir>/<arm>/``."""
+    if not arms:
+        raise ValueError("--results-dir needs at least one --arm")
+    points = []
+    for arm in arms:
+        rows = sorted((results_dir / arm).glob("*.json"))
+        if not rows:
+            raise ValueError(f"no result rows for arm {arm!r} in {results_dir / arm}")
+        for row_path in rows:
+            row = json.loads(row_path.read_text())
+            if row.get("arm") != arm:
+                raise ValueError(f"{row_path} belongs to arm {row.get('arm')!r}, not {arm!r}")
+            points.append(
+                LossPoint(
+                    arm=f"{arm}/{row['run']}",
+                    non_embedding_params=int(row["non_embedding_params"]),
+                    tokens=int(row["tokens"]),
+                    val_ce=float(row["val_ce"]),
+                )
+            )
     return points

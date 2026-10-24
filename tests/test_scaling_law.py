@@ -42,9 +42,11 @@ def test_noiseless_fit_recovers_held_out_prediction_and_exponents(noiseless_fit)
     held_out = true_loss(HELD_OUT_NON_EMBEDDING_PARAMS, HELD_OUT_TOKENS)
     predicted = noiseless_fit.predict(HELD_OUT_NON_EMBEDDING_PARAMS, HELD_OUT_TOKENS)
 
-    assert predicted == pytest.approx(held_out, abs=0.005)
-    assert noiseless_fit.alpha == pytest.approx(TRUE_ALPHA, abs=0.05)
-    assert noiseless_fit.beta == pytest.approx(TRUE_BETA, abs=0.05)
+    assert predicted == pytest.approx(held_out, abs=1e-9)
+    assert noiseless_fit.alpha == pytest.approx(TRUE_ALPHA, abs=1e-6)
+    assert noiseless_fit.beta == pytest.approx(TRUE_BETA, abs=1e-6)
+    recovered = (noiseless_fit.E, noiseless_fit.A, noiseless_fit.B)
+    assert recovered == pytest.approx((TRUE_E, TRUE_A, TRUE_B), rel=1e-6)
 
 
 def test_bootstrap_interval_covers_true_value_under_small_noise() -> None:
@@ -147,3 +149,53 @@ def test_scaling_fit_cli_rejects_malformed_points_file(tmp_path, capsys) -> None
     assert captured.err.startswith("scaling-fit failed: point 0 must be an object")
     assert captured.err.count("\n") == 1
     assert not output_path.exists()
+
+
+def test_scaling_fit_reads_study_result_rows_per_arm(tmp_path) -> None:
+    # The study writes <arm>/<run>.json rows with many fields; the fit must take one
+    # point per run, labeled arm/run, and ignore the per-run metrics files.
+    points = study_points()
+    for index, point in enumerate(points):
+        arm = f"L{index // 4}"
+        row_dir = tmp_path / arm
+        row_dir.mkdir(exist_ok=True)
+        row = {
+            "arm": arm,
+            "run": f"run{index % 4}",
+            "non_embedding_params": point.non_embedding_params,
+            "tokens": point.tokens,
+            "val_ce": point.val_ce,
+            "steady_tokens_per_second": 1.0,
+        }
+        (row_dir / f"run{index % 4}.json").write_text(json.dumps(row))
+        (row_dir / f"run{index % 4}-metrics.jsonl").write_text("{}\n")
+    output_path = tmp_path / "fit.json"
+
+    exit_code = main(
+        [
+            "scaling-fit",
+            "--results-dir",
+            str(tmp_path),
+            "--arm",
+            "L0",
+            "--arm",
+            "L1",
+            "--arm",
+            "L2",
+            "--predict-non-embedding-params",
+            str(HELD_OUT_NON_EMBEDDING_PARAMS),
+            "--predict-tokens",
+            str(HELD_OUT_TOKENS),
+            "--resamples",
+            "5",
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    assert exit_code == 0
+    payload = json.loads(output_path.read_text())
+    assert payload["point_count"] == 12
+    assert payload["prediction"]["val_ce"] == pytest.approx(
+        true_loss(HELD_OUT_NON_EMBEDDING_PARAMS, HELD_OUT_TOKENS), abs=1e-6
+    )
