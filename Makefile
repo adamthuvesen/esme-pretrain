@@ -1,8 +1,9 @@
 .DEFAULT_GOAL := check
 .PHONY: install fmt lint test check
 
-install:  ## Sync the dev environment
+install:  ## Sync the dev environment and activate the repo's git hooks
 	uv sync --extra dev
+	git config core.hooksPath .githooks
 
 fmt:  ## Auto-format and apply safe lint fixes
 	uv run ruff format .

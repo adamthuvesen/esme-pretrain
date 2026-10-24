@@ -1,0 +1,15 @@
+#!/bin/sh
+# Changes leave this repo through a feature branch and a PR (the ship skill, babysit
+# mode), never a direct push to main. Local commits on main are fine; move them to a
+# branch before pushing. Installed by `make install` (git config core.hooksPath .githooks).
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    case "$remote_ref" in
+        refs/heads/main | refs/heads/master)
+            echo "pre-push: refusing to push to ${remote_ref#refs/heads/}." >&2
+            echo "pre-push: ship through a feature branch and PR (the ship skill, babysit mode)." >&2
+            status=1
+            ;;
+    esac
+done
+exit $status

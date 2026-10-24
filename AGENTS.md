@@ -19,8 +19,9 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Workflow
 
 - Work from the repo root unless Adam explicitly asks for an isolated worktree.
-- Do not push or open a PR without explicit approval.
-- Commit accepted local work directly to `main`; keep commits small and conventional.
+- Commit accepted local work on `main`; keep commits small and conventional.
+- Ship through a feature branch and PR with the `ship` skill in babysit mode, never a
+  direct push to `main`. Do not push or open a PR without explicit approval.
 - Before committing, run the checks that match the change and leave `git status --short` clean except ignored runtime files.
 - Use `uv run ...` for project commands.
 
@@ -53,3 +54,9 @@ uv run pytest
 uv run esme-pretrain status --json
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
+
+## Enforced Rules
+
+| Rule | Enforced by | Added |
+| --- | --- | --- |
+| Never push `main` directly; ship through a feature branch and PR | `.githooks/pre-push` (activated by `make install`), tested in `tests/test_pre_push_hook.py` | 2026-10-24 |
