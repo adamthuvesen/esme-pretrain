@@ -46,6 +46,7 @@ MAX_CONCURRENT_ARMS = 4
 LR_GATE_RESULTS = (
     REPO_ROOT / "docs/results/scaling-study/lr-gate.json",
     REPO_ROOT / "docs/results/scaling-study/lr-sweep.json",
+    REPO_ROOT / "docs/results/scaling-study/lr-sweep-extension.json",
 )
 # The run card's pre-registered stop rule for the LR gate, applied per shape.
 LR_GATE_MAX_GAP_NATS = 0.02
