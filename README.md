@@ -157,6 +157,11 @@ uv run esme-pretrain base-acceptance-report \
   --run-dir <run-dir> --eval <run-dir>/base-eval.json \
   --output <run-dir>/base-acceptance-report.md --json
 
+# Pre-tokenize a split into uint16 token shards for ShardBatchLoader
+uv run --extra baselines esme-pretrain pretokenize \
+  --config configs/pretrain_214m_b200.json --tokenizer <run-dir>/tokenizer.json \
+  --split train --output-dir data/processed/<name> --max-tokens 40000000 --json
+
 # Decoded greedy samples, produced without changing training state
 uv run esme-pretrain sample \
   --checkpoint <selected-checkpoint.pt> --tokenizer <run-dir>/tokenizer.json \

@@ -109,12 +109,19 @@ These choices are deliberate, but a reader comparing runs needs to know them.
 - **Packing.** Documents are joined with `<eos>` and cut into fixed
   `context_length + 1` windows. There is no document attention mask, so
   attention crosses `<eos>` boundaries, as in GPT-2-style packing.
-- **Data order.** The train stream follows the dataset's streaming order with
-  no shuffle buffer. The WSD decay phase trains on the last 20 percent of that
-  order.
+- **Data order.** The accepted run's train stream followed the dataset's
+  streaming order with no shuffle buffer, so its WSD decay phase trained on the
+  last 20 percent of that order. Pre-tokenized shards (`esme-pretrain
+  pretokenize`, read by `ShardBatchLoader`) cut each shard into
+  `context_length + 1` windows and read them in a seeded permutation. Resume
+  seeks to the next window in that order instead of re-tokenizing the stream.
 - **Learning rate.** WSD: linear warmup, constant peak, then a cosine-shaped
   decay over the final `decay_fraction` of steps. The last optimizer step runs
   at exactly `min_lr`.
+- **Host syncs.** The loss returns device tensors, and forward plus loss are
+  compiled as one graph. A training step reads the device once, after the last
+  micro-batch: loss, grad norm, and loss components together. A non-finite step
+  is refused before the optimizer applies it.
 - **In-loop validation.** The loop reads `eval_batches` validation batches once
   at start and scores the same batches at every eval.
 - **Resume.** A checkpoint (format 3) records the optimizer schedule. Resume
