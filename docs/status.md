@@ -1,67 +1,33 @@
 # Status
 
-`Esme-214M-Base` is the current base checkpoint from the `214M B200` 10B-token
-pretraining run.
+`Esme-214M-Base` is trained, evaluated, and exported. It is a 213,960,192-parameter
+dense decoder trained on `10,229,514,240` FineWeb-Edu tokens over `26,015` steps
+([run card](run-cards/pretrain-214m-b200.md)). Posttraining and serving work
+from its export bundle in the [related repositories](../README.md#related-repositories).
 
-It is a 213,960,192-parameter dense decoder-only transformer trained from
-scratch on FineWeb-Edu `sample-10BT`. The public label is `10B` tokens; the
-exact configured budget is `10,229,514,240` tokens over `26,015` optimizer
-steps.
+## Experiments
 
-## Current Run Shape
+| Experiment | State | Result |
+| --- | --- | --- |
+| [Base model pretraining](run-cards/pretrain-214m-b200.md) | Done | CE `2.7756`, `0.9005` bits per byte on the fixed validation set. Wins 6 of 7 0-shot tasks against Cerebras-GPT-256M and Pythia-160M. |
+| [Throughput benchmark](run-cards/throughput-bench-b200.md) | Done | `1.57x` tokens/sec on one B200, MFU 18.6 to 29.1 percent. |
+| [Scaling study](run-cards/scaling-study-b200.md): LR selection | Done | Deeper models want a lower LR: `4.8e-3` at 38M, `2.4e-3` at 113M and 189M. |
+| [Scaling study](run-cards/scaling-study-b200.md): fit and 214M prediction | Next | Not run. |
 
-- Config: `configs/pretrain_214m_b200.json`
-- Dataset: `HuggingFaceFW/fineweb-edu`, subset `sample-10BT`, revision
-  `87f09149ef4734204d70ed1d046ddc9ca3f2b8f9`.
-- Split: deterministic source-document hash split, validation remainder `0`
-  modulo `100`.
-- Tokenizer: digit-split byte-level BPE, vocab `32768`.
-- Model: 30 layers, `d_model=768`, 12 query heads, 4 KV heads, `d_ff=2048`,
-  context `1024`.
-- Export target: `llm-infer` bundle format `llm_pretrain_dense_v1`.
+## Next
 
-## Handoff
+Run the scaling study's `study` stage, fit the law, commit the 214M prediction,
+and then score the base checkpoint with the `heldout` stage.
 
-The base checkpoint has evaluation, bits-per-byte reporting, a summary report,
-and an exported `llm-infer` bundle. The next model work is posttraining in
-`esme-posttrain`, not another pretraining launch.
+## Rules
 
-## Baseline Comparison
+- Paid compute (Modal, GPUs, W&B writes) needs a run card and explicit approval.
+  Launchers refuse to start without `--approved` and a spend cap that covers
+  their worst case.
+- Dry runs never download data or start Modal.
+- Run outputs, checkpoints, exports, W&B state, and `.env*` files stay out of git.
 
-The baseline harness (2026-07-10 run, `configs/baseline_eval.json`) scored the
-exported base bundle against Cerebras-GPT-256M and Pythia-160M. The gate
-reproduced Cerebras's published 0-shot table within ±0.002 before any Esme
-score was recorded. Esme won 6 of 7 downstream tasks (average 0.408 vs 0.347
-and 0.365) and the FineWeb-Edu bits-per-byte slice; the Pile slice went to the
-Pile-trained baselines. Results table: README "How Good Is It?". Raw JSONs
-live under gitignored `out/`.
-
-## Scaling Study (in progress)
-
-Phase 2 fits a scaling law on 38-113M models and predicts this base model's
-fixed-validation loss
-([run card](run-cards/scaling-study-b200.md)). The infrastructure, data, and smoke
-stage are done. The LR gate failed its pre-registered rule: at 38M non-embedding
-params, LR `1.2e-3` beat the recipe's `6e-4` by `0.093` nats. The LR choice is
-open before the study runs.
-
-## Training Throughput
-
-A before/after benchmark on one B200 (2026-10-24,
-[run card](run-cards/throughput-bench-b200.md)) measured the production 214M step
-shape at `418,466` tokens/sec on pre-tokenized shards with the current loop,
-against `266,478` for the accepted run's code and streaming data path: `1.57x`,
-MFU `18.6` -> `29.1` percent, peak memory `40.69` -> `27.29` GB.
-
-## Safety
-
-- Full pretraining remains approval-gated in code and docs.
-- The dry-run command must never download data or start Modal.
-- Runtime artifacts belong under ignored paths such as `runs/`, `checkpoints/`,
-  `exports/`, and `wandb/`.
-- Secrets belong in ignored `.env*` files and must not be committed.
-
-## Local Gates
+## Checks
 
 ```bash
 uv run ruff check .

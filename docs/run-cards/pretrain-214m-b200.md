@@ -34,20 +34,19 @@ Future reruns still require explicit approval.
 
 Selected dry-run profile: `B200`.
 
-The hardware measurement pass compared H100!, H200, and B200 under the same
-training shape. Actual measured setup spend was `$0.8583`.
+A measurement pass ran the same training shape (micro batch `24`, grad accum
+`16`) on H100, H200, and B200. The measurements are recorded in
+`configs/pretrain_214m_b200.json`:
 
-Measured projection in `configs/pretrain_214m_b200.json`:
+| GPU | Tokens/sec | Cost per token, relative to B200 |
+| --- | ---: | ---: |
+| H100 | 165,070 | 1.11 |
+| H200 | 191,391 | 1.11 |
+| B200 | 290,838 | 1.00 |
 
-| GPU | Micro batch | Grad accum | Tokens/sec | $/hour | $/1B tokens | 10.23B projected cost | Status |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
-| H100! | 24 | 16 | 165,070 | 3.95 | 6.65 | 68.00 | stable measured |
-| H200 | 24 | 16 | 191,391 | 4.55 | 6.60 | 67.55 | stable measured |
-| B200 | 24 | 16 | 290,838 | 6.25 | 5.97 | 61.06 | selected measured |
-
-H200 must beat H100! by about 15 percent throughput to improve cost/token; B200
-must beat it by about 58 percent. B200 cleared that threshold and has the lowest
-measured cost/token.
+At their hourly prices, H200 had to beat H100 by about 15 percent in throughput
+to cost less per token, and B200 by about 58 percent. B200 cleared that bar and
+has the lowest cost per token.
 
 ## Launch Contract
 
@@ -59,8 +58,8 @@ uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json
 
 Future full runs require explicit chat approval of the exact command and a
 runtime spend stop. The current base reached `26015` steps / `10.23B` target
-tokens before the finite `sample-10BT` stream exhausted; preserved artifacts live
-under the run path.
+tokens before the finite `sample-10BT` stream exhausted. Its artifacts live on
+the Modal volume `llm-pretrain-214m-b200`.
 
 ```bash
 PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=24 uv run --with modal==1.5.0 modal run --detach scripts/modal_pretrain.py --config configs/pretrain_214m_b200.json --approved --json
@@ -94,33 +93,26 @@ The run completed all `26,015` steps and stopped when the finite `sample-10BT`
 stream was exhausted. Accepted numbers, quoted here so they are citable from a
 fresh clone (run outputs are gitignored):
 
-- Train loss `10.5339` -> `2.7360` (min `2.5944`); training-time validation
-  loss `10.4642` -> `2.7426`; final grad norm `0.1215`. Caveat: this run's
-  in-loop eval read new validation batches at each eval instead of reusing one
-  fixed set (fixed after the run). Each point is a real held-out loss, but
-  points mix sampling noise into the trend. The post-run fixed-validation eval
-  below is the authoritative number.
+- Train loss `10.5339` -> `2.7360` (min `2.5944`). Training-time validation
+  loss `10.4642` -> `2.7426`. Final grad norm `0.1215`. This run's in-loop eval
+  drew new validation batches at each eval, so each point is a real held-out
+  loss with sampling noise in the trend. The post-run fixed-validation eval
+  below is the reference number.
 - Steady throughput `215,714` tokens/sec (peak `239,908`) on one B200; peak
   GPU memory `40.69` GB. The full series are plotted in the committed
   telemetry figures under `assets/`.
 - Post-run fixed-validation eval over `10,002,432` tokens and `44,478,593`
-  bytes: CE loss `2.7756`, bits per byte `0.9005`, perplexity `16.05`. The
-  independent baseline harness measured `0.9012` bits per byte on its own
-  FineWeb-Edu slice, an agreement of about `0.0007` across two code paths.
-- BPB correction (2026-10-24): the first post-run eval reported `0.9001`. It
-  counted a character split across tokens once per token, which over-counted
-  the bytes by `20,401` (`0.046` percent). The re-run scored the identical
-  token batches (same `token_batch_sha256` `1e1bb2aa...`) with the fixed byte
-  count. CE moved by `3e-7`, from a different torch version on MPS.
+  bytes (`token_batch_sha256` `1e1bb2aa...`): CE loss `2.7756`, bits per byte
+  `0.9005`, perplexity `16.05`. The independent baseline harness measured
+  `0.9012` bits per byte on its own FineWeb-Edu slice, an agreement of about
+  `0.0007` across two code paths.
 
 Source artifacts: `run-summary.json`
 (sha256 `7ebf1b5aca34a89702348a7bd54637253d859692720aa869c37cd4fbcbc3571e`)
-and `base-eval-bpb-fix.json`
+and the eval of record, `base-eval-bpb-fix.json`
 (sha256 `cb6af9fa55fedfe4a6e81a93fd976c4ba4621ed20201926f67a6fb2889a40fdd`),
-both in the run directory above. The superseded `base-eval.json`
-(sha256 `98f5479d502035006cceba11a5538dace1be6cebadd84c148cbb3ea67bd9b980`)
-stays beside them. Each eval JSON records its device (`mps`) and the
-fixed-batch hash.
+both in the run directory above. The eval JSON records its device (`mps`) and
+the fixed-batch hash.
 
 Decoded qualitative samples can be produced from the accepted checkpoint
 without changing the accepted artifact set:

@@ -18,17 +18,26 @@ flowchart TB
         Validate["pretrain_run run-card validation"]
         Body["modal_pretrain_body detached Modal run"]
         Tok["tokenizer train or load"]
+        StudyLaunch["scaling_study, throughput_bench"]
     end
 
     subgraph data [data/]
         Corpus["FineWeb-Edu stream, deterministic train/val split"]
+        Shards["token_shards: uint16 shards + manifest"]
     end
 
     subgraph training [training/]
         Stream["StreamingBatchLoader tokenize + pack"]
+        ShardLoader["ShardBatchLoader seeded window order"]
         Loop["run_pretrain step loop"]
         Ckpt["checkpointing"]
         Metrics["RunLogger + W&B"]
+    end
+
+    subgraph study [study/]
+        Plan["plan: arms, runs, branches"]
+        Arm["arm_training: train + score"]
+        Law["scaling_law: fit + bootstrap"]
     end
 
     subgraph modeling [modeling/]
@@ -58,6 +67,13 @@ flowchart TB
     Corpus --> Stream
     Tok --> Stream
     Stream --> Loop
+    Corpus --> Shards
+    Shards --> ShardLoader
+    ShardLoader --> Loop
+    StudyLaunch --> Plan
+    Plan --> Arm
+    Arm --> Loop
+    Arm --> Law
     Loop --> Backbone
     Backbone --> Layers
     Loop --> Ckpt
@@ -69,13 +85,13 @@ flowchart TB
     Harness --> Refs
 ```
 
-The `esme-pretrain` CLI also drives every `postrun/` and `baselines/` command;
-those edges are left out of the map to keep the pipeline readable.
+The `esme-pretrain` CLI also drives every `postrun/` and `baselines/` command
+and the `scaling-fit` command. Those edges are left out of the map.
 
 Dependency direction stays simple:
 
 ```text
-cli -> launch + postrun + baselines -> data + training -> modeling
+cli -> launch + postrun + baselines + study -> data + training -> modeling
 ```
 
 The one production model implementation is
@@ -102,6 +118,12 @@ sampling, and export all build it from the same `BackboneConfig`.
    reference models on shared validation slices. The bundle is the only
    contract `llm-infer` consumes ([bundle-format.md](bundle-format.md)).
 
+Experiments use the same training loop on pre-tokenized shards.
+`study/plan.py` expands `configs/scaling_study.json` into runs, and
+`launch/scaling_study.py` runs each arm in its own single-use B200 container.
+Each run's validation loss is written to a Modal volume as soon as it is
+scored. `study/scaling_law.py` fits the scaling law to those rows.
+
 ## Training And Measurement Conventions
 
 These choices are deliberate, but a reader comparing runs needs to know them.
@@ -109,25 +131,32 @@ These choices are deliberate, but a reader comparing runs needs to know them.
 - **Packing.** Documents are joined with `<eos>` and cut into fixed
   `context_length + 1` windows. There is no document attention mask, so
   attention crosses `<eos>` boundaries, as in GPT-2-style packing.
-- **Data order.** The accepted run's train stream followed the dataset's
-  streaming order with no shuffle buffer, so its WSD decay phase trained on the
-  last 20 percent of that order. Pre-tokenized shards (`esme-pretrain
-  pretokenize`, read by `ShardBatchLoader`) cut each shard into
-  `context_length + 1` windows and read them in a seeded permutation. Resume
-  seeks to the next window in that order instead of re-tokenizing the stream.
+- **Data order.** `ShardBatchLoader` cuts pre-tokenized shards into
+  `context_length + 1` windows and reads them in a seeded permutation. Resume
+  seeks to the next window in that order. The streaming loader that trained the
+  base model reads documents in the dataset's order with no shuffle, so that
+  run's WSD decay phase saw the last 20 percent of the stream.
 - **Learning rate.** WSD: linear warmup, constant peak, then a cosine-shaped
   decay over the final `decay_fraction` of steps. The last optimizer step runs
   at exactly `min_lr`.
+- **Cooldown branches.** A run with `branch_from` starts from another run's
+  checkpoint (weights, optimizer state, and data offset) taken in its constant
+  phase, and decays to its own shorter `max_steps`. Only `max_steps` may differ
+  from the source run. In a CPU test, a branch matches a from-scratch run of the
+  same schedule bit for bit. One long run therefore yields loss points at
+  several token budgets.
 - **Host syncs.** The loss returns device tensors, and forward plus loss are
   compiled as one graph. A training step reads the device once, after the last
   micro-batch: loss, grad norm, and loss components together. A non-finite step
   is refused before the optimizer applies it.
 - **In-loop validation.** The loop reads `eval_batches` validation batches once
   at start and scores the same batches at every eval.
+- **Scoring precision.** Training enables TF32 matmuls. Final evals score in
+  true fp32 and restore the previous setting afterwards.
 - **Resume.** A checkpoint (format 3) records the optimizer schedule. Resume
   refuses a run whose schedule differs (`max_steps`, LR, warmup, decay, weight
   decay, betas, grad clip). Batch shape may change, because the data offset is
-  counted in tokens. Format 2 checkpoints, such as the accepted base, load for
+  counted in tokens. Format 2 checkpoints, such as the base model's, load for
   eval and export but cannot be resumed.
 - **Bits per byte.** Each UTF-8 byte of a document is assigned to exactly one
   token, so token byte counts sum to the document length. `<eos>` adds loss
