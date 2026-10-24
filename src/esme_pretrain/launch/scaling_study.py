@@ -1,10 +1,12 @@
 """Launch scaling-study stages on Modal B200s.
 
 Stages run separately (``smoke``, ``lr-gate``, ``study``), so each spend is
-gated on its own. Each arm runs in its own container with a timeout sized from
-its FLOPs, at most ``--max-concurrent`` at a time. Every finished run's row is
-committed to the study volume as it lands. The study stage also scores the
-accepted 214M checkpoint on the same validation batches, in the same fp32 path.
+gated on its own. Every arm is spawned at launch, one container each, and Modal
+runs at most ``MAX_CONCURRENT_ARMS`` at once, so a client disconnect neither
+stops nor drops an arm. Each container stops itself when its FLOPs-sized budget
+runs out. Every finished run's row is committed to the study volume as it lands.
+The study stage also scores the accepted 214M checkpoint on the same validation
+batches, in the same fp32 path.
 The run card is ``docs/run-cards/scaling-study-b200.md``.
 """
 
@@ -12,10 +14,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sys
+import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +33,9 @@ STUDY_VOLUME = "esme-pretrain-study"
 HELDOUT_VOLUME = "llm-pretrain-214m-b200"
 MAX_ARM_TIMEOUT_SECONDS = 5 * 3600
 ARM_TIMEOUT_SLACK_SECONDS = 20 * 60
+# Leaves room under the shared account's GPU quota for other work.
+MAX_CONCURRENT_ARMS = 4
+ARM_BUDGET_EXCEEDED_EXIT = 3
 HELDOUT_TIMEOUT_SECONDS = 30 * 60
 DEFAULT_OUTPUT_DIR = Path("runs/scaling-study")
 
@@ -44,7 +50,12 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
     study_volume = modal.Volume.from_name(STUDY_VOLUME)
     heldout_volume = modal.Volume.from_name(HELDOUT_VOLUME)
 
-    @app.function(gpu=STUDY_GPU, timeout=MAX_ARM_TIMEOUT_SECONDS, volumes={"/study": study_volume})
+    @app.function(
+        gpu=STUDY_GPU,
+        timeout=MAX_ARM_TIMEOUT_SECONDS,
+        volumes={"/study": study_volume},
+        max_containers=MAX_CONCURRENT_ARMS,
+    )
     def train_arm(
         study_payload: dict[str, Any], base_payload: dict[str, Any], arm: str, params: dict
     ) -> dict[str, Any]:
@@ -76,7 +87,6 @@ def launch(argv: list[str] | None = None) -> int:
     parser.add_argument("--stage", required=True, choices=["smoke", "lr-gate", "study"])
     parser.add_argument("--arm", action="append", default=[], help="Run only these arms.")
     parser.add_argument("--assumed-tflops", type=float, default=430.0)
-    parser.add_argument("--max-concurrent", type=int, default=4)
     parser.add_argument("--spend-cap-usd", type=float, required=True)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--approved", action="store_true", help="Required to rent GPUs.")
@@ -84,8 +94,6 @@ def launch(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        if not 1 <= args.max_concurrent <= 8:
-            raise ValueError("--max-concurrent must be in [1, 8]")
         plan = load_study_plan(args.config)
         if plan.data["volume"] != STUDY_VOLUME:
             raise ValueError(f"config volume {plan.data['volume']!r} is not {STUDY_VOLUME!r}")
@@ -123,7 +131,7 @@ def launch(argv: list[str] | None = None) -> int:
         "estimated_cost_usd": round(estimated_hours * usd_per_hour, 2),
         "worst_case_cost_usd": worst_case_cost,
         "spend_cap_usd": args.spend_cap_usd,
-        "max_concurrent": args.max_concurrent,
+        "max_concurrent": MAX_CONCURRENT_ARMS,
         "commit": local_git_commit(REPO_ROOT),
         "dirty": local_git_dirty(REPO_ROOT),
     }
@@ -149,28 +157,28 @@ def launch(argv: list[str] | None = None) -> int:
     )
     started = time.perf_counter()
     outcomes: dict[str, Any] = {}
-    with (
-        modal.enable_output(),
-        app.run(detach=True),
-        ThreadPoolExecutor(max_workers=args.max_concurrent) as pool,
-    ):
-        futures = {
-            arm.arm: pool.submit(
-                train_arm.with_options(timeout=timeouts[arm.arm]).remote,
+    # Detached, and every arm spawned before waiting: if this client disconnects, the
+    # queued arms still start and finished rows are already on the volume.
+    with modal.enable_output(), app.run(detach=True):
+        calls = {
+            arm.arm: train_arm.spawn(
                 study_payload,
                 base_payload,
                 arm.arm,
-                params,
+                {**params, "budget_seconds": timeouts[arm.arm]},
             )
             for arm in sorted(arms, key=lambda arm: arm.flops, reverse=True)
         }
         if with_heldout:
-            futures["heldout"] = pool.submit(
-                eval_heldout.remote, study_payload, base_payload, params
-            )
-        for name, future in futures.items():
+            calls["heldout"] = eval_heldout.spawn(study_payload, base_payload, params)
+        print(
+            "scaling study: spawned "
+            + ", ".join(f"{name}={call.object_id}" for name, call in calls.items()),
+            flush=True,
+        )
+        for name, call in calls.items():
             try:
-                outcomes[name] = {"status": "ok", **future.result()}
+                outcomes[name] = {"status": "ok", **call.get()}
             except Exception as error:  # noqa: BLE001 - one arm's failure must not hide the rest
                 outcomes[name] = {"status": "failed", "error": repr(error)[-2000:]}
 
@@ -189,6 +197,22 @@ def launch(argv: list[str] | None = None) -> int:
         print(f"scaling study: arms did not complete: {failed}", file=sys.stderr)
         return 1
     return 0
+
+
+def _stop_after(budget_seconds: int, arm_name: str) -> None:
+    """End this container once the arm's budget is spent; finished rows are already saved.
+
+    All arms share one Modal function (so ``max_containers`` caps them together),
+    which means one function timeout; this bounds each arm's spend separately.
+    """
+
+    def stop() -> None:
+        print(f"scaling study: {arm_name} exceeded its {budget_seconds} s budget", flush=True)
+        os._exit(ARM_BUDGET_EXCEEDED_EXIT)
+
+    timer = threading.Timer(budget_seconds, stop)
+    timer.daemon = True
+    timer.start()
 
 
 def _stage_shards() -> Path:
@@ -227,6 +251,7 @@ def train_arm_body(
 
     from esme_pretrain.study.arm_training import train_study_arm
 
+    _stop_after(params["budget_seconds"], arm_name)
     plan = study_plan_from_payloads(study_payload, base_payload)
     arm = next(arm for arm in plan.arms if arm.arm == arm_name)
     model = arm.runs[0].model

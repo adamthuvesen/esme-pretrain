@@ -164,3 +164,57 @@ def test_launch_without_approval_refuses_before_modal(capsys) -> None:
 
     assert code == 2
     assert "--approved" in capsys.readouterr().err
+
+
+def test_validation_scores_in_true_fp32_after_training_enabled_tf32(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Training sets TF32 matmuls process-wide; study points must still be scored on the
+    # fp32 path of the held-out 214M point, then leave the setting as it was.
+    from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
+    from esme_pretrain.study import arm_training
+    from esme_pretrain.training.checkpointing import save_pretrain_checkpoint
+
+    config = BackboneConfig(
+        name="tiny",
+        vocab_size=VOCAB_SIZE,
+        context_length=16,
+        embedding_dim=64,
+        layers=2,
+        heads=4,
+        feedforward_dim=128,
+    )
+    checkpoint = tmp_path / "checkpoint.pt"
+    save_pretrain_checkpoint(checkpoint, model=DenseBackbone(config), config=config, step=1)
+    seen = []
+
+    def recording_mean_ce_loss(*args, **kwargs):
+        seen.append(torch.get_float32_matmul_precision())
+        return 1.0
+
+    monkeypatch.setattr(arm_training, "mean_ce_loss", recording_mean_ce_loss)
+    torch.set_float32_matmul_precision("high")
+    try:
+        arm_training.validation_ce(checkpoint, [], device="cpu")
+        assert seen == ["highest"]
+        assert torch.get_float32_matmul_precision() == "high"
+    finally:
+        torch.set_float32_matmul_precision("highest")
+
+
+def test_arm_budget_watchdog_ends_the_container_process() -> None:
+    import subprocess
+    import sys
+
+    script = (
+        "import time\n"
+        "from esme_pretrain.launch.scaling_study import _stop_after\n"
+        "_stop_after(0.2, 'probe')\n"
+        "time.sleep(30)\n"
+    )
+    started = __import__("time").perf_counter()
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+
+    assert result.returncode == scaling_study.ARM_BUDGET_EXCEEDED_EXIT
+    assert "exceeded its 0.2 s budget" in result.stdout
+    assert __import__("time").perf_counter() - started < 20
