@@ -185,12 +185,15 @@ def _train_loader(
             pin_memory=True,
             prefetch_batches=4,
         )
+    from esme_pretrain.postrun.eval_checkpoints import file_sha256
     from esme_pretrain.training.shard_loader import ShardBatchLoader
 
     if args.shard_manifest is None:
         raise SystemExit("--shard-manifest is required for the shards variant")
-    loader = ShardBatchLoader(
+    return ShardBatchLoader(
         args.shard_manifest,
+        vocab_size=model.vocab_size,
+        tokenizer_sha256=file_sha256(args.tokenizer),
         batch_size=micro_batch,
         context_length=model.context_length,
         device=device,
@@ -198,11 +201,6 @@ def _train_loader(
         pin_memory=True,
         prefetch_batches=4,
     )
-    if loader.manifest.vocab_size != model.vocab_size:
-        raise SystemExit(
-            f"shard vocab {loader.manifest.vocab_size} does not match model {model.vocab_size}"
-        )
-    return loader
 
 
 def _quantile(values: list[float], q: float) -> float:
