@@ -27,7 +27,12 @@ from esme_pretrain.launch.gpu_smoke import _check_spend_cap
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
 from esme_pretrain.modeling.backbone import BackboneConfig
-from esme_pretrain.study.plan import StudyArm, load_study_plan, study_plan_from_payloads
+from esme_pretrain.study.plan import (
+    StudyArm,
+    StudyPlan,
+    load_study_plan,
+    study_plan_from_payloads,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STUDY_GPU = "B200"
@@ -120,6 +125,7 @@ def launch(argv: list[str] | None = None) -> int:
                     base_payload["model"]
                 ).parameter_count()["non_embedding"],
                 tokens=int(plan.heldout["tokens"]),
+                fit_points=_planned_fit_points(plan),
             )
             if with_heldout
             else None
@@ -248,10 +254,24 @@ def _check_lr_gate(arms: tuple[StudyArm, ...], gate_result: Path) -> None:
                 )
 
 
+def _planned_fit_points(plan: StudyPlan) -> set[tuple[str, int, int]]:
+    """``(arm/run, N, D)`` of every run the pre-registered fit uses."""
+    fit_arms = plan.arms_for("study", tuple(plan.heldout["fit_arms"]))
+    return {
+        (f"{arm.arm}/{run.run}", run.non_embedding_params, run.tokens)
+        for arm in fit_arms
+        for run in arm.runs
+    }
+
+
 def _written_prediction(
-    path: Path | None, *, non_embedding_params: int, tokens: int
+    path: Path | None,
+    *,
+    non_embedding_params: int,
+    tokens: int,
+    fit_points: set[tuple[str, int, int]],
 ) -> dict[str, Any]:
-    """The fit's prediction, refused unless it targets the held-out 214M point."""
+    """The fit's prediction, refused unless it is the pre-registered fit of the 214M point."""
     if path is None or not path.is_file():
         raise ValueError("the heldout stage needs --prediction, the written scaling-fit output")
     from esme_pretrain.postrun.eval_checkpoints import file_sha256
@@ -262,6 +282,16 @@ def _written_prediction(
         raise ValueError(
             f"{path} predicts N={target['non_embedding_params']}, D={target['tokens']}; "
             f"the held-out point is N={non_embedding_params}, D={tokens}"
+        )
+    written = [
+        (point["arm"], point["non_embedding_params"], point["tokens"])
+        for point in payload["points"]
+    ]
+    if len(written) != len(fit_points) or set(written) != fit_points:
+        missing = sorted(label for label, _, _ in fit_points - set(written))
+        raise ValueError(
+            f"{path} is not fit on the pre-registered {len(fit_points)} points; "
+            f"missing or changed: {missing}"
         )
     return {
         "path": str(path),

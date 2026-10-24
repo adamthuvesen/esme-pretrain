@@ -275,7 +275,26 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
     assert code == 2
     assert "the held-out point is N=188794368, D=10229514240" in capsys.readouterr().err
 
-    prediction.write_text(json.dumps({"prediction": target}))
+    # A fit that dropped a pre-registered point (here all of L18) is refused too.
+    plan = load_study_plan(CONFIG)
+    points = [
+        {
+            "arm": f"{arm.arm}/{run.run}",
+            "non_embedding_params": run.non_embedding_params,
+            "tokens": run.tokens,
+            "val_ce": 3.0,
+        }
+        for arm in plan.arms_for("study", ("L6", "L12", "L18"))
+        for run in arm.runs
+    ]
+    assert len(points) == 12
+    short_fit = [point for point in points if not point["arm"].startswith("L18/")]
+    prediction.write_text(json.dumps({"prediction": target, "points": short_fit}))
+    code = scaling_study.launch([*args, "--check-only"])
+    assert code == 2
+    assert "not fit on the pre-registered 12 points" in capsys.readouterr().err
+
+    prediction.write_text(json.dumps({"prediction": target, "points": points}))
     code = scaling_study.launch([*args, "--check-only"])
     report = json.loads(capsys.readouterr().out)
     assert code == 0
