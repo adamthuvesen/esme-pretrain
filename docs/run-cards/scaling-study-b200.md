@@ -342,3 +342,27 @@ at `4.8e-3`.
    consistent with the LR handicap, not as caused by it.
 5. **Noise floor.** All 12 fit points use seed 0. Until the deep-thin repeat
    runs, the only noise estimate is the `0.005`-nat scoring flag.
+
+### Extension Results (run `lr-gate-798945f-20261024T205040`)
+
+Four B200 runs, about 0.94 B200-hours. Rows:
+[`docs/results/scaling-study/lr-sweep-extension.json`](../results/scaling-study/lr-sweep-extension.json).
+No run diverged.
+
+| Shape | `2.4e-3` | `4.8e-3` | Rule | Selected LR |
+| --- | ---: | ---: | --- | --- |
+| L6 | 3.4171 | **3.4089** | wins by `0.008` | `4.8e-3`, still at the grid edge |
+| L12 | 3.3382 | 3.3365 | `0.0017` is a tie, which goes to the lower LR | `2.4e-3` |
+| L18 | **3.2983** | 3.3412 | `2.4e-3` is interior | `2.4e-3` |
+| L30 | **3.2519** | 3.2690 | `2.4e-3` is interior | `2.4e-3` |
+
+The best LR falls as models grow: L6 at or above `4.8e-3`, L12 flat between
+`2.4e-3` and `4.8e-3`, and L18 and L30 at `2.4e-3`. L6 stays at the edge;
+Amendment 1 allows no second extension. The depth-vs-width arms take L12's
+`2.4e-3`. At L30, `6e-4` is `0.087` nats behind the best LR at 0.5B tokens, an
+upper bound on the 214M run's LR handicap (Amendment 2, rule 4).
+
+**Study compute at the selected LRs:** 1.23e19 FLOPs. That is 7.95 B200-hours
+at the 430 TFLOP/s planning assumption and about 4.9 at measured throughput.
+The hard worst case, with every container running to its timeout at measured
+throughput, is about 12 B200-hours.

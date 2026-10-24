@@ -158,31 +158,22 @@ def test_check_only_prices_a_stage_without_spending(capsys) -> None:
     assert report["worst_case_cost_usd"] <= 20
 
 
-def _passing_lr_gate(tmp_path: Path, monkeypatch) -> None:
-    gate = tmp_path / "lr-gate.json"
-    rows = [
-        {"shape": "d768-L6", "non_embedding_params": 37759488, "learning_rate": lr, "val_ce": ce}
-        for lr, ce in ((6e-4, 3.50), (1.2e-3, 3.49))
-    ]
-    gate.write_text(json.dumps({"outcomes": {"lr": {"rows": rows}}}))
-    monkeypatch.setattr(scaling_study, "LR_GATE_RESULTS", (gate,))
+def test_lr_gate_refuses_the_lr_that_failed_it() -> None:
+    # The recorded gate put 6e-4 0.093 nats behind 1.2e-3 at L6, past the 0.02 stop rule.
+    plan = load_study_plan(CONFIG)
+    failed = plan.arms_for("lr-gate", ("lr-6e-4",))
+    with pytest.raises(ValueError, match="LR 0.0006 is 0.093 nats worse"):
+        scaling_study._check_lr_gate(failed, scaling_study.LR_GATE_RESULTS[:1])
 
 
-def test_study_stage_refuses_the_lr_that_failed_the_gate(monkeypatch, capsys) -> None:
-    # The recorded gate put 6e-4 0.093 nats behind 1.2e-3 at L6, past the 0.02 stop
-    # rule; L12 and L18 were not swept there, so they are judged by L6, the nearest.
-    gate = scaling_study.LR_GATE_RESULTS[0]
-    monkeypatch.setattr(scaling_study, "LR_GATE_RESULTS", (gate,))
+def test_study_stage_passes_the_recorded_lr_sweep(capsys) -> None:
+    # The study arms carry the LRs the pre-registered selection rule picked.
     code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "1000", "--check-only"])
 
-    assert code == 2
-    assert "LR 0.0006 is 0.093 nats worse" in capsys.readouterr().err
+    assert code == 0, capsys.readouterr().err
 
 
-def test_study_stage_refuses_a_spend_cap_below_its_worst_case(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    _passing_lr_gate(tmp_path, monkeypatch)
+def test_study_stage_refuses_a_spend_cap_below_its_worst_case(capsys) -> None:
     code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "20", "--check-only"])
 
     assert code == 2
@@ -340,10 +331,7 @@ def test_committed_in_head_matches_the_tracked_blob(tmp_path: Path) -> None:
     assert not scaling_study._committed_in_head(copy)
 
 
-def test_study_stage_no_longer_scores_the_heldout_checkpoint(
-    tmp_path: Path, monkeypatch, capsys
-) -> None:
-    _passing_lr_gate(tmp_path, monkeypatch)
+def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
     code = scaling_study.launch(["--stage", "study", "--spend-cap-usd", "1000", "--check-only"])
 
     assert code == 0
