@@ -28,6 +28,12 @@ def main() -> int:
     parser.add_argument("--measure-steps", required=True, type=int)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument(
+        "--expected-source",
+        required=True,
+        type=Path,
+        help="Source tree that esme_pretrain must be imported from.",
+    )
+    parser.add_argument(
         "--rehearsal",
         action="store_true",
         help="Tiny model on CPU: checks that a source tree runs this script, no GPU.",
@@ -38,6 +44,14 @@ def main() -> int:
     import torch
 
     import esme_pretrain
+
+    imported_from = Path(esme_pretrain.__file__).resolve()
+    if not imported_from.is_relative_to(args.expected_source.resolve()):
+        raise SystemExit(
+            f"{args.variant}: esme_pretrain imported from {imported_from}, "
+            f"not from {args.expected_source}"
+        )
+
     from esme_pretrain.modeling.backbone import BackboneConfig
     from esme_pretrain.pretrain_run import load_pretrain_config
     from esme_pretrain.training.metrics import RunLogger, WandbSettings

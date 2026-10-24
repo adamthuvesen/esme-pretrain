@@ -207,9 +207,15 @@ def run_bench_body(
 def _run_variant(
     variant: str, tree: str, data: str, *, config_path: Path, params: dict[str, Any]
 ) -> dict[str, Any]:
+    # -P keeps the script's directory (/root) off sys.path. Modal mounts this module's
+    # package at /root/esme_pretrain, which would otherwise shadow PYTHONPATH and run
+    # every variant on the same tree.
     command = [
         sys.executable,
+        "-P",
         "/root/throughput_bench_variant.py",
+        "--expected-source",
+        SOURCE_TREES[tree],
         "--variant",
         variant,
         "--data",
