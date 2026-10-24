@@ -79,12 +79,14 @@ def test_current_checkpoint_schema_loads_from_disk_payload(tmp_path: Path) -> No
         "metrics": {"loss": 2.5},
         "data_offset_tokens": 544,
         "rng_state": {"torch": torch.get_rng_state()},
+        "optimizer_schedule": {"max_steps": 26015, "learning_rate": 6e-4},
     }
     path = tmp_path / "checkpoint.pt"
     torch.save(payload, path)
 
     loaded = load_pretrain_checkpoint(path)
 
+    assert loaded.optimizer_schedule == {"max_steps": 26015, "learning_rate": 6e-4}
     assert loaded.step == 26015
     assert loaded.model.config == config
     assert loaded.data_offset_tokens == 544
@@ -94,6 +96,28 @@ def test_current_checkpoint_schema_loads_from_disk_payload(tmp_path: Path) -> No
     input_ids = torch.randint(0, config.vocab_size, (2, 16))
     with torch.no_grad():
         assert torch.allclose(model(input_ids), loaded.model(input_ids), atol=1e-6)
+
+
+def test_format_2_checkpoint_still_loads_without_schedule(tmp_path: Path) -> None:
+    # The accepted 214M checkpoint is format 2; eval and export must keep loading it.
+    config = _small_config()
+    payload = {
+        "format_version": 2,
+        "config": config.to_dict(),
+        "model_state": DenseBackbone(config).state_dict(),
+        "optimizer_state": None,
+        "step": 26015,
+        "metrics": {},
+        "data_offset_tokens": 0,
+        "rng_state": {},
+    }
+    path = tmp_path / "checkpoint.pt"
+    torch.save(payload, path)
+
+    loaded = load_pretrain_checkpoint(path)
+
+    assert loaded.step == 26015
+    assert loaded.optimizer_schedule is None
 
 
 def test_missing_checkpoint_raises(tmp_path: Path) -> None:

@@ -66,10 +66,11 @@ def wsd_lr(
         return max_lr * (step + 1) / warmup_steps
     if step >= max_steps:
         return min_lr
-    decay_steps = max(1, round(decay_fraction * max_steps))
+    decay_steps = round(decay_fraction * max_steps)
     decay_start = max_steps - decay_steps
-    if step < decay_start:
+    if decay_steps == 0 or step < decay_start:
         return max_lr
-    decay_progress = (step - decay_start) / decay_steps
+    # +1 so the last optimizer step (max_steps - 1) runs at exactly min_lr.
+    decay_progress = (step - decay_start + 1) / decay_steps
     coefficient = 0.5 * (1.0 + math.cos(math.pi * decay_progress))
     return min_lr + coefficient * (max_lr - min_lr)

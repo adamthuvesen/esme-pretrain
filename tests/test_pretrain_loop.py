@@ -65,14 +65,13 @@ def test_wsd_lr_warmup_stable_then_decays() -> None:
     assert wsd_lr(2, **kwargs) == 1.0  # peak reached at end of warmup
     assert wsd_lr(3, **kwargs) == 1.0  # stable phase holds peak LR
     assert wsd_lr(7, **kwargs) == 1.0  # still stable just before decay starts
-    assert wsd_lr(8, **kwargs) == 1.0  # decay begins (progress 0 -> still peak)
-    assert wsd_lr(8, **kwargs) > wsd_lr(9, **kwargs)  # decays through the tail
-    assert math.isclose(wsd_lr(10, **kwargs), 0.1)  # floors at min_lr at the end
+    assert 0.1 < wsd_lr(8, **kwargs) < 1.0  # first decay step is already below peak
+    assert math.isclose(wsd_lr(9, **kwargs), 0.1)  # last optimizer step runs at min_lr
+    assert math.isclose(wsd_lr(10, **kwargs), 0.1)
 
 
 def test_wsd_lr_with_zero_decay_holds_peak_until_the_end() -> None:
     kwargs = dict(warmup_steps=2, max_steps=10, max_lr=1.0, min_lr=0.1, decay_fraction=0.0)
-    # decay_fraction 0.0 -> round(0)=0 -> max(1, 0)=1 step of decay at the very end.
     assert wsd_lr(5, **kwargs) == 1.0  # stable all the way through
     assert wsd_lr(9, **kwargs) == 1.0  # last in-range step still at peak
     assert math.isclose(wsd_lr(10, **kwargs), 0.1)  # floors at min_lr
@@ -141,12 +140,14 @@ def test_loop_accepts_plain_batch_iterables(tmp_path: Path) -> None:
 
 
 def test_resume_continues_from_saved_step(tmp_path: Path) -> None:
-    first = _config(tmp_path, max_steps=4)
+    first = _config(tmp_path, max_steps=7, checkpoint_interval=4)
     logger = RunLogger(tmp_path, WandbSettings(enabled=False))
     run_pretrain(first, _loader(1), logger=logger)
     logger.finish()
 
-    resumed = _config(tmp_path, max_steps=7, resume_from=tmp_path / "checkpoint.pt")
+    resumed = _config(
+        tmp_path, max_steps=7, checkpoint_interval=4, resume_from=tmp_path / "checkpoint-step4.pt"
+    )
     logger2 = RunLogger(tmp_path, WandbSettings(enabled=False))
     result = run_pretrain(resumed, _loader(1), logger=logger2)
     logger2.finish()
@@ -170,6 +171,37 @@ def test_resume_rejects_shape_compatible_config_drift(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="resume checkpoint config does not match"):
         run_pretrain(drifted, _loader(1))
+
+
+def test_resume_rejects_optimizer_schedule_drift(tmp_path: Path) -> None:
+    # Extending max_steps moves the WSD decay window: the resumed run would jump from
+    # a decayed LR back to peak. Resume must refuse it.
+    first = _config(tmp_path, max_steps=4)
+    logger = RunLogger(tmp_path, WandbSettings(enabled=False))
+    run_pretrain(first, _loader(1), logger=logger)
+    logger.finish()
+
+    extended = _config(tmp_path, max_steps=7, resume_from=tmp_path / "checkpoint.pt")
+    with pytest.raises(ValueError, match="optimizer schedule does not match.*max_steps"):
+        run_pretrain(extended, _loader(1))
+
+
+def test_in_loop_eval_scores_the_same_batches_every_time(tmp_path: Path) -> None:
+    # Each eval must see the same validation tokens, or the val curve mixes data noise
+    # into the loss trend. The eval stream is a one-shot generator, as in the real run.
+    config = _config(tmp_path, max_steps=4, eval_interval=1, eval_batches=2, learning_rate=1e-12)
+    logger = RunLogger(tmp_path, WandbSettings(enabled=False))
+    run_pretrain(config, _loader(1), eval_loader=_loader(2), logger=logger)
+    logger.finish()
+
+    val_losses = [
+        json.loads(line)["val_loss"]
+        for line in (tmp_path / "metrics.jsonl").read_text().splitlines()
+        if "val_loss" in json.loads(line)
+    ]
+    assert len(val_losses) == 4
+    # With a negligible LR the model barely moves, so the same batches give the same loss.
+    assert max(val_losses) - min(val_losses) < 1e-4
 
 
 def test_non_finite_loss_aborts_before_checkpoint(
@@ -260,19 +292,23 @@ def test_resume_continues_token_stream_not_from_head(tmp_path: Path) -> None:
     # grad_accum=2, micro_batch 4, context 16 -> window 17 -> 4*2*17 = 136 stream
     # tokens/step. 2 steps consume 4 batches = 272 tokens. After resume the loop must
     # skip those 272 tokens and continue, never re-reading batch 0..3.
-    first = _config(tmp_path, max_steps=2, grad_accum_steps=2)
+    first = _config(tmp_path, max_steps=4, grad_accum_steps=2, checkpoint_interval=2)
     first_loader = _RecordingLoader(seed=7)
     logger = RunLogger(tmp_path, WandbSettings(enabled=False))
     run_pretrain(first, first_loader, logger=logger)
     logger.finish()
 
     # The checkpoint must persist the consumed-token offset (2 steps * 136 tokens).
-    saved = load_pretrain_checkpoint(tmp_path / "checkpoint.pt")
+    saved = load_pretrain_checkpoint(tmp_path / "checkpoint-step2.pt")
     assert saved.data_offset_tokens == 272
     assert saved.rng_state  # RNG snapshot present for a faithful resume
 
     resumed = _config(
-        tmp_path, max_steps=4, grad_accum_steps=2, resume_from=tmp_path / "checkpoint.pt"
+        tmp_path,
+        max_steps=4,
+        grad_accum_steps=2,
+        checkpoint_interval=2,
+        resume_from=tmp_path / "checkpoint-step2.pt",
     )
     resume_loader = _RecordingLoader(seed=7)
     logger2 = RunLogger(tmp_path, WandbSettings(enabled=False))
@@ -303,21 +339,24 @@ def test_resume_continues_token_stream_not_from_head(tmp_path: Path) -> None:
 def test_resume_checkpoint_offset_keeps_prior_tokens_when_batch_shape_changes(
     tmp_path: Path,
 ) -> None:
-    first = _config(tmp_path, max_steps=2, micro_batch_size=4, grad_accum_steps=2)
+    first = _config(
+        tmp_path, max_steps=4, micro_batch_size=4, grad_accum_steps=2, checkpoint_interval=2
+    )
     first_loader = _RecordingLoader(seed=11, batch_size=4)
     logger = RunLogger(tmp_path, WandbSettings(enabled=False))
     run_pretrain(first, first_loader, logger=logger)
     logger.finish()
 
-    saved = load_pretrain_checkpoint(tmp_path / "checkpoint.pt")
+    saved = load_pretrain_checkpoint(tmp_path / "checkpoint-step2.pt")
     assert saved.data_offset_tokens == 272
 
+    # Batch shape may change on resume; the schedule may not.
     resumed = _config(
         tmp_path,
         max_steps=4,
         micro_batch_size=2,
         grad_accum_steps=1,
-        resume_from=tmp_path / "checkpoint.pt",
+        resume_from=tmp_path / "checkpoint-step2.pt",
     )
     resume_loader = _RecordingLoader(seed=11, batch_size=2)
     logger2 = RunLogger(tmp_path, WandbSettings(enabled=False))

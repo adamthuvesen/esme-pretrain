@@ -92,6 +92,8 @@ def launch(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.max_steps < 2:
+            raise ValueError("--max-steps must be at least 2 for the mid-run resume check")
         config = load_pretrain_config(args.config)
         gpu_profile = _selected_smoke_profile(config, SMOKE_GPU)
         micro_batch = args.micro_batch_size or int(
@@ -213,7 +215,9 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
         seed=int(training["seed"]),
         log_interval=1,
         eval_interval=0,
-        checkpoint_interval=0,
+        # One mid-run checkpoint one step before the end; the resume check restarts
+        # from it under the same schedule, as a preempted run would.
+        checkpoint_interval=int(params["max_steps"]) - 1,
         output_dir=output_dir,
     )
     logger = RunLogger(output_dir, WandbSettings(enabled=False))
@@ -251,11 +255,11 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
             while True:
                 yield resume_fixed
 
+    resume_step = train_config.max_steps - 1
     resume_config = replace(
         train_config,
-        max_steps=result.start_step + result.steps_completed + 1,
         micro_batch_size=resume_micro_batch,
-        resume_from=Path(result.final_checkpoint),
+        resume_from=output_dir / f"checkpoint-step{resume_step}.pt",
         use_compile=False,
         output_dir=Path("/tmp/pretrain-214m-b200-gpu-smoke-resume"),
     )
@@ -276,7 +280,7 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
     loss_finite = all(_is_finite(value) for value in loss_trace)
     loss_decreasing = len(loss_trace) >= 2 and loss_trace[-1] < loss_trace[0]
     resume_ok = (
-        resumed.start_step == result.steps_completed
+        resumed.start_step == resume_step
         and resumed.steps_completed == 1
         and _is_finite(resumed.train_loss_last)
     )

@@ -40,6 +40,21 @@ from esme_pretrain.training.runtime import (
     wsd_lr,
 )
 
+# PretrainConfig fields that define the LR schedule and optimizer update. A resume
+# must match them exactly: changing max_steps or decay_fraction moves the WSD decay
+# window, so a resumed run could jump from a decayed LR back to peak without notice.
+OPTIMIZER_SCHEDULE_FIELDS = (
+    "max_steps",
+    "learning_rate",
+    "min_lr_ratio",
+    "decay_fraction",
+    "warmup_steps",
+    "weight_decay",
+    "beta1",
+    "beta2",
+    "grad_clip",
+)
+
 
 @dataclass(frozen=True)
 class PretrainConfig:
@@ -89,6 +104,9 @@ class PretrainConfig:
         for name in ("eval_interval", "eval_batches", "checkpoint_interval"):
             if getattr(self, name) < 0:
                 raise TrainerError(f"{name} must be non-negative (0 disables)")
+
+    def optimizer_schedule(self) -> dict[str, float | int]:
+        return {name: getattr(self, name) for name in OPTIMIZER_SCHEDULE_FIELDS}
 
     @property
     def tokens_per_step(self) -> int:
@@ -160,16 +178,15 @@ def _accumulate_gradients(
     config: PretrainConfig,
     autocast: Any,
 ) -> tuple[float, dict[str, float]] | None:
-    micro_losses: list[float] = []
-    components: dict[str, float] = {}
+    component_sums: dict[str, float] = {}
     for _ in range(config.grad_accum_steps):
         try:
             batch: Batch = next(train_iter)
         except StopIteration:
             return None
-        # Loss is computed inside autocast on purpose: cross_entropy is on autocast's
-        # fp32 list, so the 32k-wide softmax runs in fp32 even though the model ran in
-        # bf16. backward() is outside autocast, the standard placement.
+        # language_model_loss upcasts the logits itself, so the 32k-wide logsumexp runs
+        # in fp32 even though the model ran in bf16. backward() is outside autocast,
+        # the standard placement.
         with autocast:
             logits = model(batch.input_ids)
             loss, components = language_model_loss(
@@ -178,8 +195,13 @@ def _accumulate_gradients(
                 z_loss_weight=config.model.z_loss_weight,
             )
         (loss / config.grad_accum_steps).backward()
-        micro_losses.append(components["total_loss"])
-    return sum(micro_losses) / len(micro_losses), components
+        for name, value in components.items():
+            component_sums[name] = component_sums.get(name, 0.0) + value
+    # Every micro-batch has the same target count, so the plain mean is the step mean.
+    step_components = {
+        name: total / config.grad_accum_steps for name, total in component_sums.items()
+    }
+    return step_components["total_loss"], step_components
 
 
 def _data_offset_tokens(
@@ -195,28 +217,36 @@ def _close_iterator(iterator: Any) -> None:
         close()
 
 
+def take_fixed_eval_batches(loader: Any, batches: int) -> list[Batch]:
+    """Read the in-loop validation batches once, so every eval scores the same tokens.
+
+    Streaming loaders wrap one-shot generators: iterating them again continues the
+    stream (and drops prefetched batches), so each eval would see different data.
+    """
+    iterator = iter(loader)
+    try:
+        fixed = list(islice(iterator, batches))
+    finally:
+        _close_iterator(iterator)
+    if len(fixed) < batches:
+        raise TrainerError(f"eval loader yielded {len(fixed)} batches; {batches} required")
+    return fixed
+
+
 @torch.no_grad()
 def evaluate(
     model: torch.nn.Module,
-    loader: Any,
+    batches: list[Batch],
     *,
-    batches: int,
     autocast: Any,
 ) -> float | None:
-    """Mean cross-entropy over a bounded number of eval batches (pure CE, no z-loss)."""
-    if batches < 1:
-        return None
-    iterator = iter(loader)
-    try:
-        pairs = ((batch.input_ids, batch.targets) for batch in islice(iterator, batches))
-        return mean_ce_loss(
-            model,
-            pairs,
-            device=next(model.parameters()).device,
-            autocast=autocast,
-        )
-    finally:
-        _close_iterator(iterator)
+    """Mean cross-entropy over the fixed eval batches (pure CE, no z-loss)."""
+    return mean_ce_loss(
+        model,
+        ((batch.input_ids, batch.targets) for batch in batches),
+        device=next(model.parameters()).device,
+        autocast=autocast,
+    )
 
 
 def run_pretrain(
@@ -246,6 +276,22 @@ def run_pretrain(
         loaded = load_pretrain_checkpoint(config.resume_from, map_location=device)
         if loaded.model.config != config.model:
             raise TrainerError("resume checkpoint config does not match requested pretrain config")
+        if loaded.optimizer_schedule is None:
+            raise TrainerError(
+                "resume checkpoint has no recorded optimizer schedule, so the resumed "
+                "LR schedule cannot be checked; resume from a checkpoint written by "
+                "run_pretrain"
+            )
+        drifted = {
+            name: (loaded.optimizer_schedule.get(name), value)
+            for name, value in config.optimizer_schedule().items()
+            if loaded.optimizer_schedule.get(name) != value
+        }
+        if drifted:
+            raise TrainerError(
+                "resume optimizer schedule does not match the checkpoint "
+                f"(checkpoint, requested): {drifted}"
+            )
         model: torch.nn.Module = loaded.model.to(device)
         start_step = loaded.step
         resume_optimizer_state = loaded.optimizer_state
@@ -296,6 +342,10 @@ def run_pretrain(
     flops_per_token = config.model.flops_per_token(config.model.context_length)
     device_name = torch.cuda.get_device_name(device) if is_cuda else "cpu"
     peak_tflops = peak_tflops_for_device(device_name) if is_cuda else None
+
+    eval_batches: list[Batch] = []
+    if eval_loader is not None and config.eval_interval > 0 and config.eval_batches > 0:
+        eval_batches = take_fixed_eval_batches(eval_loader, config.eval_batches)
 
     train_iter = iter(train_loader)
     tokens_per_second_samples: list[float] = []
@@ -376,19 +426,9 @@ def run_pretrain(
                 metrics["gpu_mem_gb"] = torch.cuda.max_memory_allocated(device) / (1024**3)
             logger.log(completed_step, metrics)
 
-        should_eval = (
-            eval_loader is not None
-            and config.eval_interval > 0
-            and config.eval_batches > 0
-            and (completed_step % config.eval_interval == 0 or is_last)
-        )
+        should_eval = bool(eval_batches) and (completed_step % config.eval_interval == 0 or is_last)
         if should_eval:
-            val = evaluate(
-                model,
-                eval_loader,
-                batches=config.eval_batches,
-                autocast=autocast,
-            )
+            val = evaluate(model, eval_batches, autocast=autocast)
             if val is not None:
                 val_first = val if val_first is None else val_first
                 val_last = val
@@ -404,6 +444,7 @@ def run_pretrain(
                 config=config.model,
                 step=completed_step,
                 optimizer=optimizer,
+                optimizer_schedule=config.optimizer_schedule(),
                 metrics={"loss": step_loss},
                 # Total source tokens consumed after this step; resume skips them.
                 data_offset_tokens=_data_offset_tokens(
@@ -424,6 +465,7 @@ def run_pretrain(
         config=config.model,
         step=final_step,
         optimizer=optimizer,
+        optimizer_schedule=config.optimizer_schedule(),
         metrics={"loss": train_losses[-1] if train_losses else float("nan")},
         # Total source tokens consumed at the final checkpoint; resume continues here.
         data_offset_tokens=_data_offset_tokens(

@@ -1,9 +1,9 @@
 """Save / load checkpoints for the trainable :class:`DenseBackbone`.
 
 Production checkpoints use one compact, explicit schema. A checkpoint round-trips model weights,
-optimizer state, step counter, backbone config, data-loader stream offset, and
-RNG state, so a run can resume exactly where it stopped — including the corpus
-position — or be reloaded for eval / export.
+optimizer state, step counter, backbone config, data-loader stream offset, RNG state, and
+the optimizer schedule it was trained under, so a run can resume exactly where it stopped
+— including the corpus position — or be reloaded for eval / export.
 
 The data offset is the number of **tokens** the run had consumed from the stream when
 the checkpoint was written. On resume the loop fast-forwards the (deterministic) token
@@ -22,9 +22,10 @@ from typing import Any
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
 from esme_pretrain.torch import torch
 
-# Current checkpoint schema: weights, optimizer, stream offset, and RNG state.
-PRETRAIN_CHECKPOINT_FORMAT = 2
-PRETRAIN_CHECKPOINT_REQUIRED_KEYS = {
+# Format 3 adds the optimizer schedule so resume can refuse schedule drift. Format 2
+# (no schedule) still loads for eval and export: the accepted 214M checkpoint uses it.
+PRETRAIN_CHECKPOINT_FORMAT = 3
+_FORMAT_2_KEYS = {
     "data_offset_tokens",
     "format_version",
     "config",
@@ -33,6 +34,10 @@ PRETRAIN_CHECKPOINT_REQUIRED_KEYS = {
     "rng_state",
     "step",
     "metrics",
+}
+PRETRAIN_CHECKPOINT_KEYS_BY_FORMAT = {
+    2: _FORMAT_2_KEYS,
+    3: _FORMAT_2_KEYS | {"optimizer_schedule"},
 }
 
 
@@ -99,6 +104,9 @@ class LoadedPretrainCheckpoint:
     # the loop fast-forwards to. 0 for checkpoints written before any step.
     data_offset_tokens: int = 0
     rng_state: dict[str, Any] = field(default_factory=dict)
+    # PretrainConfig.optimizer_schedule() of the writing run; None for format 2 and for
+    # checkpoints saved outside the training loop.
+    optimizer_schedule: dict[str, Any] | None = None
 
 
 def save_pretrain_checkpoint(
@@ -111,6 +119,7 @@ def save_pretrain_checkpoint(
     metrics: dict[str, Any] | None = None,
     data_offset_tokens: int = 0,
     rng_state: dict[str, Any] | None = None,
+    optimizer_schedule: dict[str, Any] | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -122,6 +131,7 @@ def save_pretrain_checkpoint(
         "metrics": dict(metrics or {}),
         "data_offset_tokens": int(data_offset_tokens),
         "rng_state": dict(rng_state or {}),
+        "optimizer_schedule": None if optimizer_schedule is None else dict(optimizer_schedule),
     }
     # Atomic write: a crash mid-save must not corrupt the previous good checkpoint.
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -144,12 +154,13 @@ def load_pretrain_checkpoint(
         raise ValueError(f"checkpoint payload must be a mapping: {path}")
     if "format_version" not in payload:
         raise ValueError(f"checkpoint payload is missing keys ['format_version']: {path}")
-    if payload["format_version"] != PRETRAIN_CHECKPOINT_FORMAT:
+    required_keys = PRETRAIN_CHECKPOINT_KEYS_BY_FORMAT.get(payload["format_version"])
+    if required_keys is None:
         raise ValueError("unsupported pretrain checkpoint format")
-    missing = PRETRAIN_CHECKPOINT_REQUIRED_KEYS - set(payload)
+    missing = required_keys - set(payload)
     if missing:
         raise ValueError(f"checkpoint payload is missing keys {sorted(missing)}: {path}")
-    extra = set(payload) - PRETRAIN_CHECKPOINT_REQUIRED_KEYS
+    extra = set(payload) - required_keys
     if extra:
         raise ValueError(f"checkpoint payload has unexpected keys {sorted(extra)}: {path}")
     if not isinstance(payload["config"], dict):
@@ -167,4 +178,5 @@ def load_pretrain_checkpoint(
         metrics=dict(payload["metrics"]),
         data_offset_tokens=int(payload["data_offset_tokens"]),
         rng_state=dict(payload["rng_state"]),
+        optimizer_schedule=payload.get("optimizer_schedule"),
     )

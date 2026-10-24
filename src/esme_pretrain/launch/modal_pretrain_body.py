@@ -201,10 +201,10 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
     result = run_pretrain(train_config, train_loader, eval_loader=eval_loader, logger=logger)
     logger.finish()
 
+    # Resume from the mid-run checkpoint under the same schedule, as a preempted run would.
     resumed_config = replace(
         train_config,
-        max_steps=6,
-        resume_from=output_dir / "checkpoint.pt",
+        resume_from=output_dir / "checkpoint-step2.pt",
         use_compile=False,
     )
     resume_logger = RunLogger(output_dir, WandbSettings(enabled=False))
