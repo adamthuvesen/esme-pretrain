@@ -136,3 +136,48 @@ Step 2's `ls` must show `/shards/train-manifest.json` and
 - MFU convention: achieved TFLOPs over the B200's `2,250` dense BF16 TFLOPs,
   with FLOPs per token from `BackboneConfig.flops_per_token`
   (see `docs/architecture.md`).
+
+## Run 1 (2026-10-24, run id `fc1cf6e-20261024T153256`)
+
+Approved in chat and launched as written. Remote wall time `553` s, about
+`0.15` B200-hours. Raw rows:
+[`docs/results/throughput-bench-b200-run1.json`](../results/throughput-bench-b200-run1.json).
+
+**Harness defect: no variant ran its assigned tree.** Every row records
+`esme_pretrain_path: /root/esme_pretrain/__init__.py`. Modal mounts the
+benchmark function's package at `/root`, the variant script's directory, and
+Python puts the script's directory ahead of `PYTHONPATH`. So all six variants
+ran the `after` code, and the before/after comparison was not measured.
+Predictions 1, 3, and 5 are unscored. Prediction 2 is unscored too, because
+`before-stream` did not run the before code. Peak memory was `27.29` GB in
+every variant, which is consistent with one code path. The CPU rehearsal could
+not catch this, because no `/root/esme_pretrain` exists locally.
+
+Fix: the variant subprocess runs with `python -P`, and the runner refuses to
+measure unless `esme_pretrain` was imported from its assigned tree. A local
+reproduction of the container layout shows the refusal without `-P` and the
+correct tree with it.
+
+**Valid result: the data-path comparison.** All rows ran the same code on the
+same GPU, and the drift control moved `0.1` percent
+(`428,226` -> `427,721` tokens/sec):
+
+| Data path (after code) | Median tokens/sec | p10-p90 | MFU | vs fixed batch |
+| --- | ---: | ---: | ---: | ---: |
+| Fixed on-device batch | 427,758 | 426,268-429,473 | 29.8% | — |
+| Token shards, shuffled | 425,167 | 423,012-429,015 | 29.6% | -0.6% |
+| Hub stream, tokenized on the fly | 287,547 | 272,623-304,153 | 20.0% | -32.8% |
+
+Prediction 4 (shards within 3 percent of the fixed batch) holds: `-0.6`
+percent. Token shards make training `1.48x` faster than the streaming path on
+the current code, and leave the data path within noise of the compute ceiling.
+
+The fixed-batch ceiling (`427,758`) is `47` percent above the June smoke's
+`290,838`. Run 1 cannot say whether the code changes, the torch version in the
+image, or the platform account for that. Run 2 measures the before tree to
+separate them.
+
+## Run 2 (pending approval)
+
+The same six variants with the harness fix. Expected about `0.16` B200-hours.
+Budget, cap, and abort rules are unchanged.
