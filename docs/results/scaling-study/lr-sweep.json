@@ -1,0 +1,470 @@
+{
+  "arms": [
+    {
+      "arm": "lr-2.4e-3",
+      "flops": 2.1716162424550195e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.51
+    },
+    {
+      "arm": "L12-lr-6e-4",
+      "flops": 3.587976890155008e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.62
+    },
+    {
+      "arm": "L12-lr-1.2e-3",
+      "flops": 3.587976890155008e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.62
+    },
+    {
+      "arm": "L12-lr-2.4e-3",
+      "flops": 3.587976890155008e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.62
+    },
+    {
+      "arm": "L18-lr-6e-4",
+      "flops": 5.0043375378549965e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.73
+    },
+    {
+      "arm": "L18-lr-1.2e-3",
+      "flops": 5.0043375378549965e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.73
+    },
+    {
+      "arm": "L18-lr-2.4e-3",
+      "flops": 5.0043375378549965e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.73
+    },
+    {
+      "arm": "L30-lr-6e-4",
+      "flops": 7.837058833254973e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.96
+    },
+    {
+      "arm": "L30-lr-1.2e-3",
+      "flops": 7.837058833254973e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.96
+    },
+    {
+      "arm": "L30-lr-2.4e-3",
+      "flops": 7.837058833254973e+17,
+      "runs": [
+        "main"
+      ],
+      "timeout_hours": 0.96
+    }
+  ],
+  "assumed_tflops": 700.0,
+  "client_wall_seconds": 2578.2990760409884,
+  "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+  "dirty": false,
+  "estimated_cost_usd": 12.76,
+  "estimated_gpu_hours": 2.04,
+  "gpu": "B200",
+  "heldout_eval": false,
+  "max_concurrent": 4,
+  "outcomes": {
+    "L12-lr-1.2e-3": {
+      "arm": "L12-lr-1.2e-3",
+      "rows": [
+        {
+          "arm": "L12-lr-1.2e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0012,
+          "max_steps": 1272,
+          "mfu": 0.29434243086513323,
+          "non_embedding_params": 75518208,
+          "notes": [],
+          "peak_memory_gb": 14.024185180664062,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L12",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 923217.5369896633,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 100684032,
+          "train_loss_last": 3.3558566570281982,
+          "val_ce": 3.3673534125309317,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 638.468621791,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L12-lr-2.4e-3": {
+      "arm": "L12-lr-2.4e-3",
+      "rows": [
+        {
+          "arm": "L12-lr-2.4e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0024,
+          "max_steps": 1272,
+          "mfu": 0.2902168936576391,
+          "non_embedding_params": 75518208,
+          "notes": [],
+          "peak_memory_gb": 14.024185180664062,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L12",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 910277.6143007489,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 100684032,
+          "train_loss_last": 3.3220837116241455,
+          "val_ce": 3.338242913005198,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 669.21526203,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L12-lr-6e-4": {
+      "arm": "L12-lr-6e-4",
+      "rows": [
+        {
+          "arm": "L12-lr-6e-4",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0006,
+          "max_steps": 1272,
+          "mfu": 0.2906389034784564,
+          "non_embedding_params": 75518208,
+          "notes": [],
+          "peak_memory_gb": 14.024185180664062,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L12",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 911601.2660291636,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 100684032,
+          "train_loss_last": 3.432380199432373,
+          "val_ce": 3.442465153949169,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 659.0160871420001,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L18-lr-1.2e-3": {
+      "arm": "L18-lr-1.2e-3",
+      "rows": [
+        {
+          "arm": "L18-lr-1.2e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0012,
+          "max_steps": 1272,
+          "mfu": 0.2890097705234974,
+          "non_embedding_params": 113276928,
+          "notes": [],
+          "peak_memory_gb": 18.47054958343506,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L18",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 649930.2347621056,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 138442752,
+          "train_loss_last": 3.302548885345459,
+          "val_ce": 3.3129819422642974,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 905.921274828,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L18-lr-2.4e-3": {
+      "arm": "L18-lr-2.4e-3",
+      "rows": [
+        {
+          "arm": "L18-lr-2.4e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0024,
+          "max_steps": 1272,
+          "mfu": 0.2862449593141182,
+          "non_embedding_params": 113276928,
+          "notes": [],
+          "peak_memory_gb": 18.47054958343506,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L18",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 643712.6788811061,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 138442752,
+          "train_loss_last": 3.2827954292297363,
+          "val_ce": 3.298333135127631,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 913.023824008,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L18-lr-6e-4": {
+      "arm": "L18-lr-6e-4",
+      "rows": [
+        {
+          "arm": "L18-lr-6e-4",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0006,
+          "max_steps": 1272,
+          "mfu": 0.2921049874804503,
+          "non_embedding_params": 113276928,
+          "notes": [],
+          "peak_memory_gb": 18.47054958343506,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L18",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 656890.8128762234,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 138442752,
+          "train_loss_last": 3.379148006439209,
+          "val_ce": 3.3888239188334865,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 910.192114021,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L30-lr-1.2e-3": {
+      "arm": "L30-lr-1.2e-3",
+      "rows": [
+        {
+          "arm": "L30-lr-1.2e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0012,
+          "max_steps": 1272,
+          "mfu": 0.2879465637124182,
+          "non_embedding_params": 188794368,
+          "notes": [],
+          "peak_memory_gb": 27.36327838897705,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L30",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 413484.8516992542,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 213960192,
+          "train_loss_last": 3.2556357383728027,
+          "val_ce": 3.2697970946727475,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 1460.567965332,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L30-lr-2.4e-3": {
+      "arm": "L30-lr-2.4e-3",
+      "rows": [
+        {
+          "arm": "L30-lr-2.4e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0024,
+          "max_steps": 1272,
+          "mfu": 0.284938347731547,
+          "non_embedding_params": 188794368,
+          "notes": [],
+          "peak_memory_gb": 27.36327838897705,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L30",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 409165.12055645743,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 213960192,
+          "train_loss_last": 3.2351818084716797,
+          "val_ce": 3.251871136199442,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 1470.946728705,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "L30-lr-6e-4": {
+      "arm": "L30-lr-6e-4",
+      "rows": [
+        {
+          "arm": "L30-lr-6e-4",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0006,
+          "max_steps": 1272,
+          "mfu": 0.2886417241138946,
+          "non_embedding_params": 188794368,
+          "notes": [],
+          "peak_memory_gb": 27.36327838897705,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L30",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 414483.0865516025,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 213960192,
+          "train_loss_last": 3.3284010887145996,
+          "val_ce": 3.3388762726440087,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 1461.6314699260001,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    },
+    "lr-2.4e-3": {
+      "arm": "lr-2.4e-3",
+      "rows": [
+        {
+          "arm": "lr-2.4e-3",
+          "arm_runs": [
+            "main"
+          ],
+          "commit": "5d9749583c5a88db4cca18ef4fc7484af3ade60f",
+          "fork_step": null,
+          "gpu_name": "NVIDIA B200",
+          "learning_rate": 0.0024,
+          "max_steps": 1272,
+          "mfu": 0.29868589834001363,
+          "non_embedding_params": 37759488,
+          "notes": [],
+          "peak_memory_gb": 9.577820777893066,
+          "run": "main",
+          "seed": 0,
+          "shape": "d768-L6",
+          "stage": "lr-gate",
+          "steady_tokens_per_second": 1547862.747541283,
+          "study_id": "scaling_study_d768",
+          "study_run_id": "lr-gate-5d97495-20261024T193042",
+          "tokens": 500170752,
+          "torch_version": "2.12.1+cu130",
+          "total_params": 62925312,
+          "train_loss_last": 3.4021573066711426,
+          "val_ce": 3.417115111022968,
+          "val_eval_tokens": 10002432,
+          "val_token_batch_sha256": "1e1bb2aa05f8f41bf57a4c5d7b74f0bd00920a8b6c25845920ee14dab798cfe6",
+          "wall_seconds": 395.880445459,
+          "warmup_steps": 200
+        }
+      ],
+      "status": "ok"
+    }
+  },
+  "prediction": null,
+  "spend_cap_usd": 47.0,
+  "stage": "lr-gate",
+  "study_run_id": "lr-gate-5d97495-20261024T193042",
+  "worst_case_cost_usd": 46.35
+}
