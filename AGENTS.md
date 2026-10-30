@@ -39,11 +39,12 @@ If docs and code disagree, fix the stale doc in the same change.
 
 ```bash
 make check    # Ruff, strict basedpyright, import-linter, fast offline CPU tests; first CI job
-make verify   # slow offline tests (statistical fits); second CI job
+make fix      # ruff format and safe lint fixes
+make slow     # slow offline tests (statistical fits); second CI job
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
 
-Prove changes with `make drive` (`verify-esme-pretrain` skill at `.agents/skills/verify-esme-pretrain/`).
+Prove changes with `make verify` (`verify-esme-pretrain` skill at `.agents/skills/verify-esme-pretrain/`).
 
 ## Enforced Rules
 
@@ -62,4 +63,4 @@ Prove changes with `make drive` (`verify-esme-pretrain` skill at `.agents/skills
 | Apply the registered LR gate only to complete, finite, comparable evidence | `src/esme_pretrain/study/lr_gate.py`, `tests/test_study_evidence.py::test_lr_gate_rejects_invalid_evidence` | 2026-11-04 |
 | Use validated study rows for heldout predictions | `src/esme_pretrain/study/prediction.py`, `tests/test_study_evidence.py::test_heldout_requires_matching_evidence` | 2026-11-04 |
 | Keep run outputs, checkpoints, data, W&B state, and `.env*` out of git | `.gitignore`, `tests/test_repo_rules.py::test_no_run_outputs_or_data_are_tracked` | 2026-10-24 |
-| The verify drives must observe FAIL against a wrong expectation | `.agents/skills/verify-esme-pretrain/verify::control`, `make drive` | 2026-11-06 |
+| The verify drives must observe FAIL against a wrong expectation | `.agents/skills/verify-esme-pretrain/verify::control`, `make verify` | 2026-11-06 |

@@ -10,11 +10,11 @@ The fast lane (`make check`) proves the code is consistent. This skill proves be
 ## Run
 
 ```bash
-make drive                    # drives that cover files changed against main; the train drive when none match
-make drive ARGS=all           # every drive, about 10 seconds
-make drive ARGS="train tokenizer"
-make drive ARGS=list          # each drive, what it proves, and the paths it covers
-make drive ARGS=control       # re-runs train with a loss threshold it cannot reach; exits 0 only when FAIL is observed
+make verify                    # drives that cover files changed against main; the train drive when none match
+make verify ARGS=all           # every drive, about 10 seconds
+make verify ARGS="train tokenizer"
+make verify ARGS=list          # each drive, what it proves, and the paths it covers
+make verify ARGS=control       # re-runs train with a loss threshold it cannot reach; exits 0 only when FAIL is observed
 ```
 
 The helper is `.agents/skills/verify-esme-pretrain/verify`. It runs children with `.venv/bin/python`, so run `make install` first.
@@ -39,4 +39,4 @@ Each run gets a temp HOME and temp XDG, HF, W&B, and inductor dirs. It sets `HF_
 
 - The config validator only accepts `artifacts.output_dir` under `runs/pretrain-214m-b200/`. The drives write to a per-run `runs/pretrain-214m-b200/verify-*` directory and move it into the evidence dir.
 - The throughput-bench plan resolves its pinned `--before-commit`, so it needs full git history. A shallow clone fails that drive.
-- `make verify` is the slow pytest lane, not this skill.
+- `make slow` is the slow pytest lane, not this skill.

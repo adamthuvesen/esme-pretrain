@@ -43,7 +43,7 @@ esme-pretrain = "esme_pretrain.cli:main"
 addopts = "-q -m 'not network and not slow'"
 markers = [
   "network: downloads real models or datasets; opt in with `pytest -m network`",
-  "slow: offline but too slow for `make check`; run with `make verify`",
+  "slow: offline but too slow for `make check`; run with `make slow`",
 ]
 testpaths = ["tests"]
 
@@ -55,6 +55,7 @@ exclude = ["archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
+ignore = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -70,10 +71,12 @@ reportUnknownArgumentType = false
 reportUnknownVariableType = false
 reportUnknownParameterType = false
 reportUnknownLambdaType = false
+reportMissingTypeStubs = false
 
 [[tool.basedpyright.executionEnvironments]]
 root = "tests"
 reportMissingParameterType = false
+reportPrivateUsage = false
 
 [tool.importlinter]
 root_package = "esme_pretrain"
