@@ -5,12 +5,12 @@ install:  ## Sync the dev environment
 	uv sync --locked --extra dev
 
 fix:  ## Apply every auto-fixer: ruff format and safe lint fixes
-	uv run --locked ruff format .
-	uv run --locked ruff check --fix .
+	uv run --locked ruff format . .agents/skills/verify-esme-pretrain/verify
+	uv run --locked ruff check --fix . .agents/skills/verify-esme-pretrain/verify
 
 lint:  ## Lint and format-check (no changes)
-	uv run --locked ruff check .
-	uv run --locked ruff format --check .
+	uv run --locked ruff check . .agents/skills/verify-esme-pretrain/verify
+	uv run --locked ruff format --check . .agents/skills/verify-esme-pretrain/verify
 
 types:  ## Strict type-check src, scripts, tests, and the verify entry script
 	uv run --locked basedpyright

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fnmatch
+import hashlib
 import json
 import math
 import os
@@ -24,7 +25,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 PYTHON = ROOT / ".venv" / "bin" / "python"
 RUNS_PARENT = Path("runs/pretrain-214m-b200")  # the config validator only accepts output here
-GLOBAL_PATHS = ["pyproject.toml", "uv.lock", "configs/pretrain_214m_b200.json", ".agents/skills/verify-esme-pretrain/*"]
+GLOBAL_PATHS = [
+    "pyproject.toml",
+    "uv.lock",
+    "configs/pretrain_214m_b200.json",
+    ".agents/skills/verify-esme-pretrain/*",
+]
 TRIPWIRE_TOOLS = ("modal", "wandb", "huggingface-cli", "hf")
 SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 SITECUSTOMIZE = """
@@ -60,10 +66,20 @@ class Context:
     env: dict[str, str]
     drive_dir: Path = Path()
 
-    def python(self, name: str, *args: str, expect_exit: int = 0, timeout: float = 45) -> subprocess.CompletedProcess[str]:
+    def python(
+        self, name: str, *args: str, expect_exit: int = 0, timeout: float = 45
+    ) -> subprocess.CompletedProcess[str]:
         cmd = [str(PYTHON), *args]
         (self.drive_dir / f"{name}.cmd").write_text(" ".join(cmd) + "\n")
-        proc = subprocess.Popen(cmd, cwd=ROOT, env=self.env, text=True, start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        proc = subprocess.Popen(
+            cmd,
+            cwd=ROOT,
+            env=self.env,
+            text=True,
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         try:
             out, err = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -76,7 +92,9 @@ class Context:
             (self.drive_dir / f"{name}.{suffix}").write_text(text)
         if proc.returncode != expect_exit:
             tail = (err or out).strip().splitlines()[-1:] or ["<no output>"]
-            raise DriveFailed(f"{name}: expected exit {expect_exit}, got {proc.returncode}: {tail[0]}")
+            raise DriveFailed(
+                f"{name}: expected exit {expect_exit}, got {proc.returncode}: {tail[0]}"
+            )
         return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
     def rehearsal_config(self) -> tuple[Path, Path]:
@@ -100,57 +118,121 @@ def require(condition: bool, message: str) -> None:
 def drive_train(ctx: Context, *, max_final_loss: float | None = None) -> str:
     config, out_parent = ctx.rehearsal_config()
     try:
-        result = ctx.python("rehearsal", "scripts/modal_pretrain.py", "--config", str(config), "--local-dress-rehearsal", "--json")
+        result = ctx.python(
+            "rehearsal",
+            "scripts/modal_pretrain.py",
+            "--config",
+            str(config),
+            "--local-dress-rehearsal",
+            "--json",
+        )
         payload = json.loads(result.stdout)
         out = ctx.keep(out_parent) / "local-dress-rehearsal"
     finally:
         shutil.rmtree(out_parent, ignore_errors=True)
     rehearsal = payload["rehearsal"]
-    require(payload["status"] == "local_dress_rehearsal_complete" and payload["paid_compute"] is False, f"status {payload['status']!r}, paid_compute {payload['paid_compute']!r}")
-    require(rehearsal["required_artifacts_present"], "rehearsal is missing required pretrain artifacts")
-    rows = [json.loads(line) for line in (out / "metrics.jsonl").read_text().splitlines() if line.strip()]
+    require(
+        payload["status"] == "local_dress_rehearsal_complete" and payload["paid_compute"] is False,
+        f"status {payload['status']!r}, paid_compute {payload['paid_compute']!r}",
+    )
+    require(
+        rehearsal["required_artifacts_present"], "rehearsal is missing required pretrain artifacts"
+    )
+    rows = [
+        json.loads(line)
+        for line in (out / "metrics.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
     train = [(row["step"], row["loss"]) for row in rows if "loss" in row]
     first_run, resumed = train[:4], train[4:]
     losses = [loss for _, loss in train] + [row["val_loss"] for row in rows if "val_loss" in row]
     require(all(math.isfinite(loss) for loss in losses), f"non-finite loss in {losses}")
     first, final = first_run[0][1], first_run[-1][1]
     ceiling = first if max_final_loss is None else max_final_loss
-    require(final < ceiling, f"expected final train loss < {ceiling:.4f}, got {final:.4f} (first {first:.4f})")
-    require([step for step, _ in resumed] == [3, 4], f"resume from step 2 should replay steps 3-4, got {resumed}")
-    require(resumed == first_run[2:], f"resumed losses {resumed} differ from the uninterrupted run {first_run[2:]}")
-    reload = ctx.python("reload", "-c", (
-        "import json,sys; from esme_pretrain.training.checkpointing import load_pretrain_checkpoint as l; "
-        "c=l(sys.argv[1]); n=sum(p.numel() for p in c.model.parameters()); "
-        "print(json.dumps({'step': c.step, 'params': n, 'offset': c.data_offset_tokens}))"
-    ), str(out / "checkpoint.pt"))
+    require(
+        final < ceiling,
+        f"expected final train loss < {ceiling:.4f}, got {final:.4f} (first {first:.4f})",
+    )
+    require(
+        [step for step, _ in resumed] == [3, 4],
+        f"resume from step 2 should replay steps 3-4, got {resumed}",
+    )
+    require(
+        resumed == first_run[2:],
+        f"resumed losses {resumed} differ from the uninterrupted run {first_run[2:]}",
+    )
+    reload = ctx.python(
+        "reload",
+        "-c",
+        (
+            "import json,sys; from esme_pretrain.training.checkpointing import load_pretrain_checkpoint as l; "
+            "c=l(sys.argv[1]); n=sum(p.numel() for p in c.model.parameters()); "
+            "print(json.dumps({'step': c.step, 'params': n, 'offset': c.data_offset_tokens}))"
+        ),
+        str(out / "checkpoint.pt"),
+    )
     loaded = json.loads(reload.stdout)
-    require(loaded["step"] == 4 and loaded["params"] > 0, f"checkpoint reload gave {loaded}, expected step 4")
+    require(
+        loaded["step"] == 4 and loaded["params"] > 0,
+        f"checkpoint reload gave {loaded}, expected step 4",
+    )
     return f"4 CPU steps, loss {first:.4f}->{final:.4f}, resume replays steps 3-4 exactly, checkpoint reloads at step 4"
 
 
 def drive_tokenizer(ctx: Context) -> str:
     config, out_parent = ctx.rehearsal_config()
     try:
-        payload = json.loads(ctx.python("smoke", "scripts/modal_pretrain.py", "--config", str(config), "--local-tokenizer-smoke", "--json").stdout)
+        payload = json.loads(
+            ctx.python(
+                "smoke",
+                "scripts/modal_pretrain.py",
+                "--config",
+                str(config),
+                "--local-tokenizer-smoke",
+                "--json",
+            ).stdout
+        )
         out = ctx.keep(out_parent) / "local-tokenizer-smoke"
     finally:
         shutil.rmtree(out_parent, ignore_errors=True)
-    require(payload["trained_source"] == "trained" and payload["loaded_source"] == "loaded_existing_tokenizer", f"sources {payload['trained_source']!r}/{payload['loaded_source']!r}")
-    require(payload["trained_vocab_size"] == payload["loaded_vocab_size"] > 256, f"vocab sizes {payload['trained_vocab_size']}/{payload['loaded_vocab_size']}")
+    require(
+        payload["trained_source"] == "trained"
+        and payload["loaded_source"] == "loaded_existing_tokenizer",
+        f"sources {payload['trained_source']!r}/{payload['loaded_source']!r}",
+    )
+    require(
+        payload["trained_vocab_size"] == payload["loaded_vocab_size"] > 256,
+        f"vocab sizes {payload['trained_vocab_size']}/{payload['loaded_vocab_size']}",
+    )
     text = "Byte-level BPE: café 123."
-    decoded = ctx.python("roundtrip", "-c", (
-        "import sys; from tokenizers import Tokenizer; t=Tokenizer.from_file(sys.argv[1]); "
-        "print(t.decode(t.encode(sys.argv[2]).ids), end='')"
-    ), str(out / "tokenizer.json"), text).stdout
+    decoded = ctx.python(
+        "roundtrip",
+        "-c",
+        (
+            "import sys; from tokenizers import Tokenizer; t=Tokenizer.from_file(sys.argv[1]); "
+            "print(t.decode(t.encode(sys.argv[2]).ids), end='')"
+        ),
+        str(out / "tokenizer.json"),
+        text,
+    ).stdout
     require(decoded == text, f"round-trip expected {text!r}, got {decoded!r}")
     return f"BPE trains ({payload['trained_vocab_size']} vocab), reloads from disk, round-trips {text!r}"
 
 
 LAUNCHERS = {
-    "pretrain": (["scripts/modal_pretrain.py", "--config", "configs/pretrain_214m_b200.json"], ["--dry-run", "--json"]),
+    "pretrain": (
+        ["scripts/modal_pretrain.py", "--config", "configs/pretrain_214m_b200.json"],
+        ["--dry-run", "--json"],
+    ),
     "gpu-smoke": (["scripts/pretrain_gpu_smoke.py"], ["--check-only"]),
-    "scaling-study": (["scripts/modal_scaling_study.py", "--stage", "smoke", "--spend-cap-usd", "5"], ["--check-only"]),
-    "throughput-bench": (["scripts/modal_throughput_bench.py", "--spend-cap-usd", "10"], ["--check-only"]),
+    "scaling-study": (
+        ["scripts/modal_scaling_study.py", "--stage", "smoke", "--spend-cap-usd", "5"],
+        ["--check-only"],
+    ),
+    "throughput-bench": (
+        ["scripts/modal_throughput_bench.py", "--spend-cap-usd", "10"],
+        ["--check-only"],
+    ),
 }
 
 
@@ -159,23 +241,75 @@ def drive_launch_plans(ctx: Context) -> str:
         base, plan_flags = LAUNCHERS[name]
         plan = json.loads(ctx.python(f"{name}-plan", *base, *plan_flags).stdout)
         if name == "pretrain":
-            require(not (plan["will_start_modal_job"] or plan["will_download_data"] or plan["approval_flag"] != "--approved"), f"pretrain dry-run would launch or lost its approval flag: {plan['status']}")
+            require(
+                not (
+                    plan["will_start_modal_job"]
+                    or plan["will_download_data"]
+                    or plan["approval_flag"] != "--approved"
+                ),
+                f"pretrain dry-run would launch or lost its approval flag: {plan['status']}",
+            )
         else:
-            require(plan["status"] in {"check_ok", "spend_cap_ok"} and 0 < plan["worst_case_cost_usd"] <= plan["spend_cap_usd"], f"{name} plan {plan['status']!r}, worst case {plan['worst_case_cost_usd']} vs cap {plan['spend_cap_usd']}")
+            require(
+                plan["status"] in {"check_ok", "spend_cap_ok"}
+                and 0 < plan["worst_case_cost_usd"] <= plan["spend_cap_usd"],
+                f"{name} plan {plan['status']!r}, worst case {plan['worst_case_cost_usd']} vs cap {plan['spend_cap_usd']}",
+            )
         refused = ctx.python(f"{name}-unapproved", *base, expect_exit=2)
-        require(all(w in refused.stderr for w in ("refused", "spends money", "--approved")) and not refused.stdout.strip(), f"{name} without --approved did not refuse at the approval gate: {(refused.stderr or refused.stdout).strip()[:200]}")
+        require(
+            all(w in refused.stderr for w in ("refused", "spends money", "--approved"))
+            and not refused.stdout.strip(),
+            f"{name} without --approved did not refuse at the approval gate: {(refused.stderr or refused.stdout).strip()[:200]}",
+        )
 
-    with ThreadPoolExecutor() as pool:  # each launcher is an independent process; run them side by side
+    with (
+        ThreadPoolExecutor() as pool
+    ):  # each launcher is an independent process; run them side by side
         list(pool.map(check, LAUNCHERS))
     return f"{len(LAUNCHERS)} launch plans resolve with cost within cap, and each refuses without --approved"
 
 
 DRIVES = {
-    "train": Drive("The CPU dress rehearsal trains, checkpoints, resumes exactly, and the checkpoint reloads", ["src/esme_pretrain/training/*", "src/esme_pretrain/modeling/*", "src/esme_pretrain/data/*", "src/esme_pretrain/torch.py", "src/esme_pretrain/launch/modal_pretrain_body.py", "src/esme_pretrain/launch/modal_artifacts.py", "scripts/modal_pretrain.py", "src/esme_pretrain/pretrain_*.py"], drive_train),
-    "tokenizer": Drive("The production byte-level BPE trains, saves, reloads, and round-trips text", ["src/esme_pretrain/launch/modal_tokenizer.py", "src/esme_pretrain/launch/modal_pretrain_body.py", "scripts/modal_pretrain.py"], drive_tokenizer),
-    "launch-plans": Drive("Every paid launcher resolves its plan and cost without spend, and refuses without --approved", ["src/esme_pretrain/launch/*", "src/esme_pretrain/study/*", "src/esme_pretrain/pretrain_*.py", "scripts/*", "configs/*"], drive_launch_plans),
+    "train": Drive(
+        "The CPU dress rehearsal trains, checkpoints, resumes exactly, and the checkpoint reloads",
+        [
+            "src/esme_pretrain/training/*",
+            "src/esme_pretrain/modeling/*",
+            "src/esme_pretrain/data/*",
+            "src/esme_pretrain/torch.py",
+            "src/esme_pretrain/launch/modal_pretrain_body.py",
+            "src/esme_pretrain/launch/modal_artifacts.py",
+            "scripts/modal_pretrain.py",
+            "src/esme_pretrain/pretrain_*.py",
+        ],
+        drive_train,
+    ),
+    "tokenizer": Drive(
+        "The production byte-level BPE trains, saves, reloads, and round-trips text",
+        [
+            "src/esme_pretrain/launch/modal_tokenizer.py",
+            "src/esme_pretrain/launch/modal_pretrain_body.py",
+            "scripts/modal_pretrain.py",
+        ],
+        drive_tokenizer,
+    ),
+    "launch-plans": Drive(
+        "Every paid launcher resolves its plan and cost without spend, and refuses without --approved",
+        [
+            "src/esme_pretrain/launch/*",
+            "src/esme_pretrain/study/*",
+            "src/esme_pretrain/pretrain_*.py",
+            "scripts/*",
+            "configs/*",
+        ],
+        drive_launch_plans,
+    ),
 }
 SMOKE = "train"
+
+
+# The control passes only when its drive fails on exactly this planted expectation.
+CONTROL_FAILURE = "expected final train loss < 1.0000, got "
 
 
 def control(ctx: Context) -> str:
@@ -184,7 +318,64 @@ def control(ctx: Context) -> str:
 
 def git(*args: str) -> str:
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    return subprocess.run(["git", *args], cwd=ROOT, env=env, capture_output=True, text=True, check=False).stdout.strip()
+    return subprocess.run(
+        ["git", *args], cwd=ROOT, env=env, capture_output=True, text=True, check=False
+    ).stdout.strip()
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "absent"
+
+
+def checkout_state() -> dict[str, str]:
+    """HEAD, branch, git config and hooks, and every changed, untracked, or ignored path.
+
+    Changed and untracked files compare by content; ignored files by size and mtime, because
+    .venv holds too many files to hash. `.verify/` and `__pycache__/` are the only allowed writes.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    status = ["git", "status", "--porcelain=v2", "--branch", "-z", "-uall", "--ignored"]
+    listing = subprocess.run(status, cwd=ROOT, env=env, capture_output=True, check=True).stdout
+    git_dir = (ROOT / git("rev-parse", "--git-common-dir")).resolve()
+    state = {".git/config": digest(git_dir / "config")}
+    state |= {f".git/hooks/{hook.name}": digest(hook) for hook in (git_dir / "hooks").glob("*")}
+    entries = iter(os.fsdecode(listing).split("\0"))
+    for entry in entries:
+        if entry.startswith("# branch.oid ") or entry.startswith("# branch.head "):
+            key, _, value = entry[2:].partition(" ")
+            state[key] = value
+            continue
+        if not entry or entry.startswith("#"):
+            continue
+        kind = entry[0]
+        fields = {"1": 8, "2": 9, "u": 10}.get(kind)
+        path = entry[2:] if fields is None else entry.split(" ", fields)[fields]
+        if kind == "2":
+            next(entries)
+        if path.startswith(".verify/") or "__pycache__" in path.split("/"):
+            continue
+        target = ROOT / path
+        if kind == "!":
+            if target.exists():
+                info = target.stat()
+                state[path] = f"ignored:{info.st_size}:{info.st_mtime_ns}"
+        else:
+            status_code = entry.split(" ", 2)[1] if fields else kind
+            state[path] = f"{status_code}:{digest(target)}"
+    return state
+
+
+def unique_run_dir(stem: str) -> Path:
+    runs = ROOT / ".verify/runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    for attempt in range(1, 1000):
+        candidate = runs / (stem if attempt == 1 else f"{stem}-{attempt}")
+        try:
+            candidate.mkdir()
+        except FileExistsError:
+            continue
+        return candidate
+    raise OSError(f"no free run directory for {stem} under {runs}")
 
 
 def changed_files() -> set[str]:
@@ -198,7 +389,11 @@ def select_changed() -> list[str]:
     files = changed_files()
     if any(fnmatch.fnmatch(f, glob) for f in files for glob in GLOBAL_PATHS):
         return list(DRIVES)
-    picked = [name for name, d in DRIVES.items() if any(fnmatch.fnmatch(f, g) for f in files for g in d.paths)]
+    picked = [
+        name
+        for name, d in DRIVES.items()
+        if any(fnmatch.fnmatch(f, g) for f in files for g in d.paths)
+    ]
     return picked or [SMOKE]
 
 
@@ -218,29 +413,65 @@ def isolated_env(scratch: Path) -> dict[str, str]:
         stub.write_text(f'#!/bin/sh\necho "{tool} $*" >> "{log}"\nexit 97\n')
         stub.chmod(0o755)
     (scratch / "site" / "sitecustomize.py").write_text(SITECUSTOMIZE)
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "MODAL_", "WANDB_", "HF_")) and not any(s in k for s in SECRET_MARKERS)}
-    env.update({
-        "HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config"), "XDG_CACHE_HOME": str(home / ".cache"),
-        "XDG_DATA_HOME": str(home / ".local/share"), "PATH": f"{trip}:{env.get('PATH', '')}",
-        "PYTHONPATH": str(scratch / "site"), "PYTHONDONTWRITEBYTECODE": "1", "VERIFY_TRIPWIRE_LOG": str(log),
-        "HF_HOME": str(home / "hf"), "HF_HUB_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-        "WANDB_MODE": "disabled", "WANDB_DIR": str(scratch / "wandb"), "MODAL_CONFIG_PATH": str(home / ".modal.toml"),
-        "MODAL_SERVER_URL": f"http://127.0.0.1:{closed_port()}", "TORCHINDUCTOR_CACHE_DIR": str(scratch / "inductor"),
-    })
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(("GIT_", "MODAL_", "WANDB_", "HF_"))
+        and not any(s in k for s in SECRET_MARKERS)
+    }
+    env.update(
+        {
+            "HOME": str(home),
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
+            "XDG_DATA_HOME": str(home / ".local/share"),
+            "PATH": f"{trip}:{env.get('PATH', '')}",
+            "PYTHONPATH": str(scratch / "site"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "VERIFY_TRIPWIRE_LOG": str(log),
+            "HF_HOME": str(home / "hf"),
+            "HF_HUB_OFFLINE": "1",
+            "HF_DATASETS_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "WANDB_MODE": "disabled",
+            "WANDB_DIR": str(scratch / "wandb"),
+            "MODAL_CONFIG_PATH": str(home / ".modal.toml"),
+            "MODAL_SERVER_URL": f"http://127.0.0.1:{closed_port()}",
+            "TORCHINDUCTOR_CACHE_DIR": str(scratch / "inductor"),
+        }
+    )
     return env
 
 
 def preflight(env: dict[str, str]) -> None:
     require(PYTHON.exists(), f"{PYTHON} is missing; run `make install`")
-    where = subprocess.run([str(PYTHON), "-c", "import esme_pretrain; print(esme_pretrain.__file__)"], env=env, capture_output=True, text=True, check=False).stdout.strip()
-    require(where == str(ROOT / "src/esme_pretrain/__init__.py"), f"esme_pretrain imports from {where!r}, not this checkout")
-    require(env["WANDB_MODE"] == "disabled" and env["HF_HUB_OFFLINE"] == "1" and "MODAL_TOKEN_ID" not in env, "external-effect switches are not off")
+    where = subprocess.run(
+        [str(PYTHON), "-c", "import esme_pretrain; print(esme_pretrain.__file__)"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    require(
+        where == str(ROOT / "src/esme_pretrain/__init__.py"),
+        f"esme_pretrain imports from {where!r}, not this checkout",
+    )
+    require(
+        env["WANDB_MODE"] == "disabled"
+        and env["HF_HUB_OFFLINE"] == "1"
+        and "MODAL_TOKEN_ID" not in env,
+        "external-effect switches are not off",
+    )
 
 
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else ""
     if command == "list":
-        print("\n".join(f"{n:14} {d.proves}\n{'':14} paths: {', '.join(d.paths)}" for n, d in DRIVES.items()))
+        print(
+            "\n".join(
+                f"{n:14} {d.proves}\n{'':14} paths: {', '.join(d.paths)}" for n, d in DRIVES.items()
+            )
+        )
         return 0
     unknown = [n for n in argv if n not in DRIVES] if command not in ("all", "control") else []
     if unknown:
@@ -249,15 +480,20 @@ def main(argv: list[str]) -> int:
     names = {"all": list(DRIVES), "control": ["control"]}.get(command) or argv or select_changed()
     sha = git("rev-parse", "HEAD")
     dirty = bool(git("status", "--porcelain"))
-    run_dir = ROOT / ".verify/runs" / f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{sha[:7]}{'-dirty' if dirty else ''}"
-    run_dir.mkdir(parents=True)
+    run_dir = unique_run_dir(
+        f"{datetime.now(UTC):%Y%m%dT%H%M%S%fZ}-{sha[:7]}{'-dirty' if dirty else ''}"
+    )
+    before = checkout_state()
+    changed: list[str] = []
     scratch = Path(tempfile.mkdtemp(prefix="verify-esme-pretrain-"))
     results, failed = [], False
     try:
         env = isolated_env(scratch)
         preflight(env)
         ctx = Context(run_dir, scratch, env)
-        redacted = {k: "<redacted>" if any(s in k for s in SECRET_MARKERS) else v for k, v in env.items()}
+        redacted = {
+            k: "<redacted>" if any(s in k for s in SECRET_MARKERS) else v for k, v in env.items()
+        }
         (run_dir / "env.json").write_text(json.dumps(redacted, indent=2, sort_keys=True))
         for name in names:
             ctx.drive_dir = run_dir / name
@@ -266,12 +502,17 @@ def main(argv: list[str]) -> int:
             try:
                 detail = (control if name == "control" else DRIVES[name].run)(ctx)
                 result = "PASS"
-            except (DriveFailed, KeyError, ValueError) as error:
-                detail, result = str(error) if isinstance(error, DriveFailed) else f"{type(error).__name__}: {error}", "FAIL"
+            except DriveFailed as error:
+                detail, result = str(error), "FAIL"
+            except Exception as error:
+                detail, result = f"drive crashed: {type(error).__name__}: {error}", "FAIL"
             trip_log = scratch / "tripwire.log"
             if trip_log.exists() and trip_log.read_text().strip():
                 shutil.copy(trip_log, ctx.drive_dir / "tripwire.log")
-                detail, result = f"tripwire fired: {trip_log.read_text().strip().splitlines()[0]}", "FAIL"
+                detail, result = (
+                    f"tripwire fired: {trip_log.read_text().strip().splitlines()[0]}",
+                    "FAIL",
+                )
                 trip_log.unlink()
             seconds = round(time.monotonic() - start, 1)
             print(f"{result} {name} {seconds}s {detail}", flush=True)
@@ -286,13 +527,30 @@ def main(argv: list[str]) -> int:
         for empty in (ROOT / RUNS_PARENT, ROOT / RUNS_PARENT.parent):
             with suppress(OSError):
                 empty.rmdir()
-        (run_dir / "summary.json").write_text(json.dumps({"sha": sha, "dirty": dirty, "drives": results}, indent=2))
+        after = checkout_state()
+        changed = sorted(p for p in before.keys() | after.keys() if before.get(p) != after.get(p))
+        if changed:
+            print(f"FAIL checkout changed during the run: {', '.join(changed)}", flush=True)
+        failed = failed or bool(changed) or not results
+        summary = {
+            "sha": sha,
+            "dirty": dirty,
+            "result": "FAIL" if failed else "PASS",
+            "checkout_changed": changed,
+            "drives": results,
+        }
+        (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"evidence: {run_dir.relative_to(ROOT)}")
     if command == "control":
-        last = results[-1] if results else {}
-        observed = last.get("result") == "FAIL" and "expected final train loss < 1.0000" in last.get("detail", "")
-        print("control: FAIL observed" if observed else "control: expected FAIL, but the wrong expectation passed")
-        return 0 if observed else 1
+        failures = [str(r["detail"]) for r in results if r["result"] == "FAIL"]
+        if not changed and len(failures) == 1 and failures[0].startswith(CONTROL_FAILURE):
+            print("control: FAIL observed")
+            return 0
+        if failures:
+            print(f"control: failed for another reason; expected {CONTROL_FAILURE!r}")
+        else:
+            print("control: expected FAIL, but the wrong expectation passed")
+        return 1
     return 1 if failed else 0
 
 

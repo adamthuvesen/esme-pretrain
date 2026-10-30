@@ -21,8 +21,9 @@ The helper is `.agents/skills/verify-esme-pretrain/verify`. It runs children wit
 
 ## Reading Results
 
-- Each drive prints `PASS|FAIL <drive> <seconds>s <detail>`. A FAIL detail names what the drive expected and what it observed.
-- Evidence is in `.verify/runs/<utc>-<sha7>[-dirty]/`. Each drive has `<step>.cmd`, `.stdout`, `.stderr`, and `.exit` files, plus the rehearsal run directory under `artifacts/` (metrics, checkpoints, tokenizer). `summary.json` holds the results and the git sha.
+- Each drive prints `PASS|FAIL <drive> <seconds>s <detail>`. A FAIL detail names what the drive expected and what it observed. A drive that crashes is a FAIL.
+- The run fails when it changes the checkout: a tracked, untracked, or ignored file, the index, HEAD, or `.git/config`. Only `.verify/` and `__pycache__/` may change.
+- Evidence is in `.verify/runs/<utc>-<sha7>[-dirty]/`. Each drive has `<step>.cmd`, `.stdout`, `.stderr`, and `.exit` files, plus the rehearsal run directory under `artifacts/` (metrics, checkpoints, tokenizer). `summary.json` holds the overall `result`, `checkout_changed`, the drive results, and the git sha.
 - `tripwire fired` means a child tried a non-loopback network connection or called `modal`, `wandb`, or `hf`. Treat it as a spend or data-leak risk, not a flake.
 
 ## Isolation
