@@ -47,7 +47,7 @@ def _rule_rows(agents: str) -> list[tuple[str, list[str]]]:
 
 def _defines(path: str, name: str) -> bool:
     text = (ROOT / path).read_text(encoding="utf-8")
-    if path.endswith(".py"):
+    if path.endswith(".py") or text.startswith("#!/usr/bin/env python"):
         pattern = rf"^\s*(?:async\s+)?(?:def|class)\s+{re.escape(name)}\b"
     elif path == "Makefile":
         pattern = rf"^{re.escape(name)}:"

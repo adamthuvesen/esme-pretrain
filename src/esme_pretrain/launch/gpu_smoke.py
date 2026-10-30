@@ -394,7 +394,7 @@ def _nvidia_smi(query: str) -> str | None:
             text=True,
         )
         return out.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         return None
 
 

@@ -7,7 +7,7 @@ name = "esme-pretrain"
 version = "0.0.0"
 description = "Small base-model pretraining lab with fixed eval and export."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = { text = "MIT" }
 authors = [{ name = "Adam Thuvesen" }]
 dependencies = [
@@ -49,7 +49,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py313"
+target-version = "py314"
 src = ["src", "tests"]
 exclude = ["archive"]
 

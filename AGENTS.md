@@ -43,6 +43,8 @@ make verify   # slow offline tests (statistical fits); second CI job
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
 
+Prove changes with `make drive` (`verify-esme-pretrain` skill at `.agents/skills/verify-esme-pretrain/`).
+
 ## Enforced Rules
 
 `tests/test_repo_rules.py` fails when this section is missing, a row cites no `path::name` check or make target, or a cited file does not define the cited name.
@@ -60,3 +62,4 @@ uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json
 | Apply the registered LR gate only to complete, finite, comparable evidence | `src/esme_pretrain/study/lr_gate.py`, `tests/test_study_evidence.py::test_lr_gate_rejects_invalid_evidence` | 2026-11-04 |
 | Use validated study rows for heldout predictions | `src/esme_pretrain/study/prediction.py`, `tests/test_study_evidence.py::test_heldout_requires_matching_evidence` | 2026-11-04 |
 | Keep run outputs, checkpoints, data, W&B state, and `.env*` out of git | `.gitignore`, `tests/test_repo_rules.py::test_no_run_outputs_or_data_are_tracked` | 2026-10-24 |
+| The verify drives must observe FAIL against a wrong expectation | `.agents/skills/verify-esme-pretrain/verify::control`, `make drive` | 2026-11-06 |

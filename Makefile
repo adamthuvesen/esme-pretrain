@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := check
-.PHONY: install fmt lint types imports test check verify
+.PHONY: install fmt lint types imports test check verify drive
 
 install:  ## Sync the dev environment
 	uv sync --locked --extra dev
@@ -25,3 +25,6 @@ check: lint types imports test  ## The fast local and CI gate
 
 verify:  ## Run the slow offline tests (statistical fits)
 	uv run --locked python -m pytest -m slow
+
+drive:  ## Drive the real training and launch entrypoints offline (ARGS=all|list|control|<drive>)
+	.agents/skills/verify-esme-pretrain/verify $(ARGS)
