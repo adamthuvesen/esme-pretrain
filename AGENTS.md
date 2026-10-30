@@ -49,15 +49,22 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Gates
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+make check
 uv run esme-pretrain status --json
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
+
+`make check` runs locked Ruff, all-source ty, import-linter, and the offline CPU suite.
+The suite includes training, resume, fixed eval, export, and bundle loading.
 
 ## Enforced Rules
 
 | Rule | Enforced by | Added |
 | --- | --- | --- |
 | Never push `main` directly; ship through a feature branch and PR | `.githooks/pre-push`, active in clones set up with `make install` (the README setup step); tested in `tests/test_pre_push_hook.py`. Clones set up otherwise have no hook. | 2026-10-24 |
+| Study owns its protocol without CLI, launch, or post-run imports | `make imports`, dependency contracts in `pyproject.toml` | 2026-11-04 |
+| Type-check every production module and script | `make types`, `tool.ty.src` covers `src` and `scripts` | 2026-11-04 |
+| Fit complete planned arms with matching run and evaluation identities | `study/results.py`, `tests/test_study_results.py` | 2026-11-04 |
+| Keep modeling independent, and keep data and training below operation policy | `make imports`, five domain contracts in `pyproject.toml` | 2026-11-04 |
+| Apply the registered LR gate only to complete, finite, comparable evidence | `study/lr_gate.py`, `tests/test_study_evidence.py` | 2026-11-04 |
+| Use validated study rows for heldout predictions | `study/prediction.py`, point and plan evidence checked before launch | 2026-11-04 |

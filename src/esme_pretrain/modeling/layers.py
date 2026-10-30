@@ -22,7 +22,8 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.weight = torch.nn.Parameter(torch.ones(dim))
 
-    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+    # PyTorch declares Module.forward as a mutable Callable attribute.
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         dtype = hidden.dtype
         hidden_fp32 = hidden.float()
         normed = hidden_fp32 * torch.rsqrt(hidden_fp32.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -67,5 +68,6 @@ class SwiGLU(torch.nn.Module):
         self.w_up = torch.nn.Linear(dim, feedforward_dim, bias=False)
         self.w_down = torch.nn.Linear(feedforward_dim, dim, bias=False)
 
-    def forward(self, hidden: torch.Tensor) -> torch.Tensor:
+    # PyTorch declares Module.forward as a mutable Callable attribute.
+    def forward(self, hidden: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         return self.w_down(F.silu(self.w_gate(hidden)) * self.w_up(hidden))

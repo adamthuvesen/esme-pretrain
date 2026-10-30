@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-import hashlib
-import itertools
 import json
 import math
 import time
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
+if TYPE_CHECKING:
+    from tokenizers import Tokenizer
+
+from esme_pretrain.artifacts.hashes import file_sha256
 from esme_pretrain.data.corpus_stream import document_text_stream
+from esme_pretrain.data.token_bytes import (
+    FixedEvalBatch,
+    batch_token_byte_windows,
+    token_byte_counts,
+)
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.pretrain_run import PretrainLaunchConfig, load_pretrain_config
 from esme_pretrain.torch import torch
@@ -21,24 +28,9 @@ FINAL_WITHIN_BEST_MARGIN = 0.02
 
 
 class SupportsEncode(Protocol):
-    def encode(self, text: str) -> Any: ...
+    def encode(self, text: str, /) -> Any: ...
 
-    def token_to_id(self, token: str) -> int | None: ...
-
-
-@dataclass(frozen=True)
-class FixedEvalBatch:
-    input_ids: torch.Tensor
-    targets: torch.Tensor
-    target_byte_counts: torch.Tensor
-
-    @property
-    def token_count(self) -> int:
-        return int(self.input_ids.numel())
-
-    @property
-    def byte_count(self) -> int:
-        return int(self.target_byte_counts.sum().item())
+    def token_to_id(self, token: str, /) -> int | None: ...
 
 
 @dataclass(frozen=True)
@@ -88,7 +80,7 @@ def run_eval_checkpoints(config: EvalCheckpointConfig) -> dict[str, Any]:
 
     launch_config = load_pretrain_config(config.config_path)
     tokenizer = load_tokenizer(config.tokenizer_path)
-    model_config = BackboneConfig.from_dict(launch_config.payload["model"])
+    model_config = launch_config.model_config
     batches = build_fixed_validation_batches(
         launch_config,
         tokenizer,
@@ -141,7 +133,7 @@ def run_eval_checkpoints(config: EvalCheckpointConfig) -> dict[str, Any]:
     return payload
 
 
-def load_tokenizer(path: Path) -> SupportsEncode:
+def load_tokenizer(path: Path) -> Tokenizer:
     if not path.exists():
         raise ValueError(f"tokenizer does not exist: {path}")
     try:
@@ -211,64 +203,6 @@ def _encoding_ids(encoding: Any) -> list[int]:
     return list(encoding)
 
 
-def token_byte_counts(text: str, encoding: Any, *, token_count: int) -> list[int]:
-    offsets = getattr(encoding, "offsets", None)
-    if offsets is None or len(offsets) != token_count:
-        raise ValueError("tokenizer encoding must expose offsets for bits-per-byte eval")
-    byte_counts = partitioned_byte_counts(text, offsets)
-    text_bytes = len(text.encode("utf-8"))
-    if sum(byte_counts) != text_bytes:
-        raise ValueError(
-            f"byte accounting mismatch: tokens cover {sum(byte_counts)} bytes, "
-            f"document has {text_bytes}"
-        )
-    return byte_counts
-
-
-def partitioned_byte_counts(text: str, offsets: Sequence[tuple[int, int]]) -> list[int]:
-    """Per-token UTF-8 byte counts that partition the full text exactly.
-
-    Token offsets from byte-level BPE tokenizers can trim whitespace or overlap,
-    so raw offset spans under- or over-count bytes. Partitioning by token start
-    boundaries assigns every byte to exactly one token: the counts always sum to
-    ``len(text.encode("utf-8"))``.
-    """
-    if not offsets:
-        if text:
-            raise ValueError("tokenizer produced no tokens for non-empty text")
-        return []
-    starts = [int(start) for start, _end in offsets]
-    boundaries = [0]
-    for start in starts[1:]:
-        boundaries.append(max(start, boundaries[-1]))
-    boundaries.append(len(text))
-    counts = []
-    for begin, end in zip(boundaries[:-1], boundaries[1:], strict=True):
-        counts.append(len(text[begin:end].encode("utf-8")))
-    return counts
-
-
-def batch_token_byte_windows(
-    token_bytes: Iterable[tuple[int, int]], *, window: int, batch_size: int
-) -> Iterator[tuple[torch.Tensor, torch.Tensor]]:
-    if window < 2:
-        raise ValueError("window must be at least 2 (context_length + 1)")
-    if batch_size < 1:
-        raise ValueError("batch_size must be at least 1")
-    iterator = iter(token_bytes)
-    needed = window * batch_size
-    while True:
-        chunk = list(itertools.islice(iterator, needed))
-        if len(chunk) < needed:
-            return
-        token_ids = [token_id for token_id, _byte_count in chunk]
-        byte_counts = [byte_count for _token_id, byte_count in chunk]
-        yield (
-            torch.tensor(token_ids, dtype=torch.long).view(batch_size, window),
-            torch.tensor(byte_counts, dtype=torch.long).view(batch_size, window),
-        )
-
-
 @torch.no_grad()
 def evaluate_checkpoint(
     checkpoint_path: Path,
@@ -308,16 +242,6 @@ def evaluate_checkpoint(
         eval_batches=len(fixed_batches),
         runtime_seconds=round(time.perf_counter() - start, 6),
     )
-
-
-def file_sha256(path: Path) -> str:
-    if not path.exists():
-        raise ValueError(f"required file does not exist: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def select_checkpoint(results: Sequence[CheckpointEvalResult | dict[str, Any]]) -> dict[str, Any]:

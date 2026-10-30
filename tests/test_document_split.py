@@ -8,6 +8,7 @@ from esme_pretrain.data.document_split import (
     passes_int_score_filter,
     select_documents,
 )
+from esme_pretrain.pretrain_run import load_pretrain_config
 
 
 def test_validation_split_is_deterministic() -> None:
@@ -106,20 +107,12 @@ def test_document_text_stream_loads_configured_dataset_and_reuses_split(monkeypa
         raise AssertionError(f"unexpected import: {name}")
 
     monkeypatch.setattr(corpus_stream.importlib, "import_module", fake_import)
+    accepted = load_pretrain_config(Path("configs/pretrain_214m_b200.json"))
     config = SimpleNamespace(
-        payload={
-            "dataset": {
-                "source": "HuggingFaceFW/fineweb-edu",
-                "subset": "sample-10BT",
-                "split": "train",
-                "streaming": True,
-                "revision": "revision",
-                "filters": {"min_int_score": 3},
-                "id_field": "id",
-                "text_field": "text",
-            },
-            "split": {"seed": 0, "validation_modulo": 2, "validation_remainder": 0},
-        }
+        config=SimpleNamespace(
+            dataset=accepted.config.dataset.model_copy(update={"revision": "revision"}),
+            split=accepted.config.split.model_copy(update={"validation_modulo": 2}),
+        )
     )
 
     train = list(corpus_stream.document_text_stream(config, split="train"))
@@ -154,11 +147,12 @@ def test_local_parquet_files_are_read_in_sorted_order(tmp_path: Path, monkeypatc
         "import_module",
         lambda name: SimpleNamespace(load_dataset=load_dataset),
     )
+    accepted = load_pretrain_config(Path("configs/pretrain_214m_b200.json"))
     config = SimpleNamespace(
-        payload={
-            "dataset": {"filters": {"min_int_score": 3}, "id_field": "id", "text_field": "text"},
-            "split": {"seed": 0, "validation_modulo": 1, "validation_remainder": 0},
-        }
+        config=SimpleNamespace(
+            dataset=accepted.config.dataset,
+            split=accepted.config.split.model_copy(update={"validation_modulo": 1}),
+        )
     )
 
     texts = list(

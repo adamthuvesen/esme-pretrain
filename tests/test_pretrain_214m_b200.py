@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,29 +17,29 @@ CONFIG_214M_B200 = Path("configs/pretrain_214m_b200.json")
 def test_pretrain_214m_b200_config_validates_dense_keystone_contract() -> None:
     config = load_pretrain_config(CONFIG_214M_B200)
 
-    assert config.payload["run_id"] == "pretrain_214m_b200"
-    assert config.payload["run_card"] == "docs/run-cards/pretrain-214m-b200.md"
-    assert config.payload["model"]["name"] == "214M"
-    assert config.payload["model"]["layers"] == 30
-    assert config.payload["model"]["embedding_dim"] == 768
-    assert config.payload["model"]["heads"] == 12
-    assert config.payload["model"]["kv_heads"] == 4
-    assert config.payload["model"]["feedforward_dim"] == 2048
-    assert config.payload["budgets"]["train_token_budget"] == 10_229_514_240
-    assert config.payload["optimizer"]["training"]["micro_batch_size"] == 24
-    assert config.payload["optimizer"]["training"]["grad_accum_steps"] == 16
+    assert config.config.run_id == "pretrain_214m_b200"
+    assert config.config.run_card == "docs/run-cards/pretrain-214m-b200.md"
+    assert config.config.model.name == "214M"
+    assert config.config.model.layers == 30
+    assert config.config.model.embedding_dim == 768
+    assert config.config.model.heads == 12
+    assert config.config.model.kv_heads == 4
+    assert config.config.model.feedforward_dim == 2048
+    assert config.config.budgets.train_token_budget == 10_229_514_240
+    assert config.config.optimizer.training.micro_batch_size == 24
+    assert config.config.optimizer.training.grad_accum_steps == 16
     assert config.selected_gpu == "B200"
-    assert set(config.payload["runtime"]["gpu_profiles"]) == {"H100!", "H200", "B200"}
+    assert set(config.config.runtime.gpu_profiles) == {"H100!", "H200", "B200"}
     assert config.tokens_per_step == 24 * 16 * 1024
     assert config.train_steps == 26015
     assert config.estimated_cost_usd == pytest.approx(
-        config.payload["budgets"]["train_token_budget"]
-        / config.selected_gpu_profile["projected_tokens_per_second"]
-        * config.selected_gpu_profile["usd_per_hour"]
+        config.config.budgets.train_token_budget
+        / config.selected_gpu_profile.projected_tokens_per_second
+        * config.selected_gpu_profile.usd_per_hour
         / 3600,
         rel=1e-6,
     )
-    assert tuple(config.payload["artifacts"]["required_files"]) == EXPECTED_ARTIFACTS
+    assert tuple(config.config.artifacts.required_files) == EXPECTED_ARTIFACTS
 
 
 def test_pretrain_214m_b200_dry_run_includes_gpu_projection_and_approval_gate() -> None:
@@ -62,13 +63,13 @@ def test_pretrain_214m_b200_dry_run_includes_gpu_projection_and_approval_gate() 
     profile = config.selected_gpu_profile
     assert payload["runtime"]["selected_gpu_profile"]["modal_gpu"] == "B200"
     assert payload["runtime"]["selected_gpu_profile"]["expected_duration_hours"] == pytest.approx(
-        round(config.train_token_budget / profile["projected_tokens_per_second"] / 3600, 2)
+        round(config.train_token_budget / profile.projected_tokens_per_second / 3600, 2)
     )
     assert payload["runtime"]["estimated_cost_usd"] == pytest.approx(
         round(config.estimated_cost_usd, 2)
     )
     assert payload["runtime"]["estimated_usd_per_1b_tokens"] == pytest.approx(
-        round(profile["usd_per_hour"] / profile["projected_tokens_per_second"] * 1e9 / 3600, 2)
+        round(profile.usd_per_hour / profile.projected_tokens_per_second * 1e9 / 3600, 2)
     )
     assert "PRETRAIN_GPU='B200'" in payload["launch_command"]
     assert "modal run --detach" in payload["launch_command"]
@@ -234,7 +235,7 @@ def _train_with_fake_tokenizers(config, output_dir: Path, captured: dict[str, ob
 
 def test_split_digits_pretokenizer_splits_multi_digit_numbers(tmp_path: Path) -> None:
     config = load_pretrain_config(CONFIG_214M_B200)
-    assert config.payload["tokenizer"]["split_digits"] is True
+    assert config.config.tokenizer.split_digits is True
 
     captured: dict[str, object] = {}
     _train_with_fake_tokenizers(config, tmp_path, captured)
@@ -246,7 +247,12 @@ def test_split_digits_pretokenizer_splits_multi_digit_numbers(tmp_path: Path) ->
 
 def test_invalid_trained_tokenizer_is_not_persisted(tmp_path: Path, monkeypatch) -> None:
     config = load_pretrain_config(CONFIG_214M_B200)
-    config.payload["tokenizer"]["vocab_size"] = 32769
+    config = replace(
+        config,
+        config=config.config.model_copy(
+            update={"tokenizer": config.config.tokenizer.model_copy(update={"vocab_size": 32769})}
+        ),
+    )
     fakes = _fake_tokenizers_namespace({})
 
     def fake_import(name: str):
@@ -295,7 +301,7 @@ def test_existing_tokenizer_is_loaded_instead_of_retrained(tmp_path: Path, monke
             return self._texts[ids[0]] if ids else ""
 
         def get_vocab_size(self) -> int:
-            return config.payload["tokenizer"]["vocab_size"]
+            return config.config.tokenizer.vocab_size
 
     def fake_import(name: str):
         if name == "tokenizers":
@@ -331,7 +337,7 @@ def test_existing_tokenizer_round_trip_is_revalidated(tmp_path: Path, monkeypatc
             return "drifted"
 
         def get_vocab_size(self) -> int:
-            return config.payload["tokenizer"]["vocab_size"]
+            return config.config.tokenizer.vocab_size
 
     def fake_import(name: str):
         if name == "tokenizers":
@@ -345,7 +351,9 @@ def test_existing_tokenizer_round_trip_is_revalidated(tmp_path: Path, monkeypatc
 
 
 def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
-    config = SimpleNamespace(payload={"budgets": {"tokenizer_training_token_budget": 2}})
+    config = SimpleNamespace(
+        config=SimpleNamespace(budgets=SimpleNamespace(tokenizer_training_token_budget=2))
+    )
     captured: dict[str, object] = {}
 
     def fake_document_text_stream(stream_config, *, split: str):
@@ -410,3 +418,83 @@ def test_pretrain_config_rejects_model_drift(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="baseline_config"):
         load_pretrain_config(config_path)
+
+
+def test_gpu_smoke_requires_approval_before_remote_execution(monkeypatch, capsys) -> None:
+    def forbidden_remote(*_args, **_kwargs):
+        raise AssertionError("GPU smoke must refuse before remote execution")
+
+    monkeypatch.setattr(gpu_smoke, "run_smoke", SimpleNamespace(remote=forbidden_remote))
+    assert gpu_smoke.launch(["--spend-cap-usd", "10"]) == 2
+    assert "--approved" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("gpu,timeout", [("H100!", 24), ("B200", 19)])
+def test_full_launch_refuses_hardware_or_timeout_drift_before_spawn(
+    gpu: str, timeout: int, capsys
+) -> None:
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("runtime mismatch must refuse before remote spawn")
+
+    assert (
+        modal_pretrain_body.launch(
+            ["--config", str(CONFIG_214M_B200), "--approved"],
+            run_pretrain_launch=SimpleNamespace(spawn=forbidden_spawn),
+            modal_gpu=gpu,
+            modal_timeout_hours=timeout,
+        )
+        == 2
+    )
+    error = capsys.readouterr().err
+    assert f"GPU {gpu!r}, timeout {timeout}h" in error
+    assert "expected GPU 'B200', timeout 24h" in error
+    assert "PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=24" in error
+
+
+@pytest.mark.parametrize("cap", ["0", "nan", "inf"])
+def test_gpu_smoke_refuses_invalid_spend_caps(cap: str, capsys) -> None:
+    assert gpu_smoke.launch(["--spend-cap-usd", cap, "--check-only"]) == 2
+    assert "spend cap must be positive and finite" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("gpu,timeout", [(None, None), ("B200", None), (None, 24)])
+def test_full_launch_requires_actual_runtime_before_spawn(gpu, timeout, capsys) -> None:
+    def forbidden_spawn(*_args, **_kwargs):
+        raise AssertionError("unknown runtime must refuse before remote spawn")
+
+    assert (
+        modal_pretrain_body.launch(
+            ["--config", str(CONFIG_214M_B200), "--approved"],
+            run_pretrain_launch=SimpleNamespace(spawn=forbidden_spawn),
+            modal_gpu=gpu,
+            modal_timeout_hours=timeout,
+        )
+        == 2
+    )
+    assert "supply the actual Modal GPU and timeout" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("heads", 0),
+        ("heads", 256),
+        ("rope_theta", float("nan")),
+        ("rms_norm_eps", float("inf")),
+        ("z_loss_weight", float("nan")),
+    ],
+)
+def test_invalid_model_run_card_returns_actionable_cli_error(
+    tmp_path: Path, field: str, value, capsys
+) -> None:
+    from esme_pretrain.cli import main
+
+    payload = json.loads(CONFIG_214M_B200.read_text())
+    payload["model"][field] = value
+    path = tmp_path / "invalid-model.json"
+    path.write_text(json.dumps(payload))
+    assert main(["pretrain-214m-b200", "--config", str(path), "--dry-run", "--json"]) == 2
+    result = capsys.readouterr()
+    assert result.out == ""
+    assert str(path) in result.err and "model" in result.err
+    assert "Fix the run card JSON" in result.err and "Traceback" not in result.err

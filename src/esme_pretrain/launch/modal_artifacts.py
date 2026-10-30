@@ -24,9 +24,9 @@ def write_data_report(
     config: PretrainLaunchConfig, output_dir: Path, tokenizer_report: dict[str, Any]
 ) -> None:
     report = {
-        "dataset": config.payload["dataset"],
-        "split": config.payload["split"],
-        "budgets": config.payload["budgets"],
+        "dataset": config.config.dataset.model_dump(mode="json"),
+        "split": config.config.split.model_dump(mode="json"),
+        "budgets": config.config.budgets.model_dump(mode="json"),
         "tokenizer": tokenizer_report,
         "note": "Full run streams rows lazily; local dress rehearsal uses synthetic data.",
     }
@@ -59,12 +59,12 @@ def write_pretrain_report(
 ) -> str:
     report = f"""# 214M B200 Pretrain Report
 
-- run: `{config.payload["run_id"]}`
+- run: `{config.config.run_id}`
 - commit: `{commit}`
 - dirty: `{dirty}`
 - output: `{output_dir}`
-- train tokens target: `{config.payload["budgets"]["train_token_budget"]}`
-- max cost: `${config.payload["runtime"]["max_cost_usd"]}`
+- train tokens target: `{config.config.budgets.train_token_budget}`
+- max cost: `${config.config.runtime.max_cost_usd}`
 - estimated/actual cost payload: `{json.dumps(cost, sort_keys=True)}`
 
 ## Result
@@ -86,7 +86,9 @@ def write_rehearsal_manifest(
     *,
     repo_root: Path,
 ) -> None:
-    (output_dir / "config.json").write_text(json.dumps(config.payload, indent=2), encoding="utf-8")
+    (output_dir / "config.json").write_text(
+        config.config.model_dump_json(indent=2, by_alias=True), encoding="utf-8"
+    )
     (output_dir / "tokenizer.json").write_text(
         json.dumps({"kind": "local-dress-rehearsal", "vocab_size": 256}, indent=2),
         encoding="utf-8",

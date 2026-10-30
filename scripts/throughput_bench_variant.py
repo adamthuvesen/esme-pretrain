@@ -53,13 +53,15 @@ def main() -> int:
         )
 
     from esme_pretrain.modeling.backbone import BackboneConfig
-    from esme_pretrain.pretrain_run import load_pretrain_config
+    from esme_pretrain.pretrain_run import validate_pretrain_payload
     from esme_pretrain.training.metrics import RunLogger, WandbSettings
     from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
 
-    config = load_pretrain_config(args.config)
-    model = BackboneConfig.from_dict(config.payload["model"])
-    optimizer = config.payload["optimizer"]
+    # Both source versions validate this JSON boundary, but expose different config attributes.
+    payload = json.loads(args.config.read_text(encoding="utf-8"))
+    config = validate_pretrain_payload(payload, args.config)
+    model = config.model_config
+    optimizer = payload["optimizer"]
     training = dict(optimizer["training"])
     if args.rehearsal:
         model = BackboneConfig(
@@ -185,7 +187,7 @@ def _train_loader(
             pin_memory=True,
             prefetch_batches=4,
         )
-    from esme_pretrain.postrun.eval_checkpoints import file_sha256
+    from esme_pretrain.artifacts.hashes import file_sha256
     from esme_pretrain.training.shard_loader import ShardBatchLoader
 
     if args.shard_manifest is None:

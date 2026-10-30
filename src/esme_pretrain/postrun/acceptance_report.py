@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.postrun.eval_checkpoints import file_sha256
+from esme_pretrain.artifacts.hashes import file_sha256
 from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS
 
 

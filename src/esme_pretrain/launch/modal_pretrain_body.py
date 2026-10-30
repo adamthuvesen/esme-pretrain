@@ -31,6 +31,7 @@ from esme_pretrain.launch.modal_tokenizer import (
 from esme_pretrain.launch.pretrain import (
     LAUNCH_APPROVAL_FLAG,
     build_pretrain_dry_run,
+    validate_modal_runtime,
 )
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.pretrain_run import (
@@ -91,7 +92,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def launch(argv: list[str] | None = None, *, run_pretrain_launch: Any | None = None) -> int:
+def launch(
+    argv: list[str] | None = None,
+    *,
+    run_pretrain_launch: Any | None = None,
+    modal_gpu: str | None = None,
+    modal_timeout_hours: int | None = None,
+) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
@@ -131,8 +138,23 @@ def launch(argv: list[str] | None = None, *, run_pretrain_launch: Any | None = N
         )
         return 2
 
+    if modal_gpu is None or modal_timeout_hours is None:
+        print(
+            "pretrain launch refused: supply the actual Modal GPU and timeout before spawning. "
+            f"Use {dry_run['launch_command']}",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        validate_modal_runtime(config, gpu=modal_gpu, timeout_hours=modal_timeout_hours)
+    except ValueError as error:
+        print(f"pretrain launch refused: {error}", file=sys.stderr)
+        return 2
+
     function_call = run_pretrain_launch.spawn(
-        config.payload, local_git_commit(REPO_ROOT), local_git_dirty(REPO_ROOT)
+        config.config.model_dump(mode="json", by_alias=True),
+        local_git_commit(REPO_ROOT),
+        local_git_dirty(REPO_ROOT),
     )
     if args.spawn:
         print(
@@ -290,10 +312,12 @@ def run_pretrain_launch_body(
         config_payload, Path(f"configs/{config_payload.get('run_id', 'pretrain')}.json")
     )
     started = time.perf_counter()
-    output_dir = VOLUME_MOUNT / config.payload["run_id"]
+    output_dir = VOLUME_MOUNT / config.config.run_id
     output_dir.mkdir(parents=True, exist_ok=True)
     _arm_spend_alarm(config)
-    (output_dir / "config.json").write_text(json.dumps(config.payload, indent=2), encoding="utf-8")
+    (output_dir / "config.json").write_text(
+        config.config.model_dump_json(indent=2, by_alias=True), encoding="utf-8"
+    )
 
     tokenizer, tokenizer_report = load_or_train_tokenizer(config, output_dir)
     train_documents = document_text_stream(config, split="train")
@@ -304,29 +328,29 @@ def run_pretrain_launch_body(
         def encode(self, text: str) -> list[int]:
             return tokenizer.encode(text).ids
 
-    model = BackboneConfig.from_dict(config.payload["model"])
-    training = config.payload["optimizer"]["training"]
-    monitoring = config.payload["monitoring"]
+    model = config.model_config
+    training = config.config.optimizer.training
+    monitoring = config.config.monitoring
     train_config = PretrainConfig(
         model=model,
         max_steps=config.train_steps,
-        micro_batch_size=training["micro_batch_size"],
-        grad_accum_steps=training["grad_accum_steps"],
-        learning_rate=config.payload["optimizer"]["learning_rate"],
-        min_lr_ratio=config.payload["optimizer"]["min_lr_ratio"],
-        decay_fraction=config.payload["optimizer"]["decay_fraction"],
-        warmup_steps=config.payload["optimizer"]["warmup_steps"],
-        weight_decay=config.payload["optimizer"]["weight_decay"],
-        grad_clip=config.payload["optimizer"]["grad_clip"],
-        dtype=training["dtype"],
+        micro_batch_size=training.micro_batch_size,
+        grad_accum_steps=training.grad_accum_steps,
+        learning_rate=config.config.optimizer.learning_rate,
+        min_lr_ratio=config.config.optimizer.min_lr_ratio,
+        decay_fraction=config.config.optimizer.decay_fraction,
+        warmup_steps=config.config.optimizer.warmup_steps,
+        weight_decay=config.config.optimizer.weight_decay,
+        grad_clip=config.config.optimizer.grad_clip,
+        dtype=training.dtype,
         device="cuda",
-        use_compile=training["compile"],
-        use_fused_optimizer=training["fused_optimizer"],
-        seed=training["seed"],
-        log_interval=monitoring["log_interval"],
-        eval_interval=monitoring["eval_interval"],
-        eval_batches=monitoring["eval_batches"],
-        checkpoint_interval=monitoring["checkpoint_interval"],
+        use_compile=training.use_compile,
+        use_fused_optimizer=training.fused_optimizer,
+        seed=training.seed,
+        log_interval=monitoring.log_interval,
+        eval_interval=monitoring.eval_interval,
+        eval_batches=monitoring.eval_batches,
+        checkpoint_interval=monitoring.checkpoint_interval,
         output_dir=output_dir,
         resume_from=_resume_checkpoint(output_dir),
     )
@@ -350,13 +374,13 @@ def run_pretrain_launch_body(
         output_dir,
         WandbSettings(
             enabled=True,
-            project=monitoring["wandb_project"],
-            run_name=config.payload["run_id"],
+            project=monitoring.wandb_project,
+            run_name=config.config.run_id,
             run_id=_wandb_resume_run_id(output_dir) if train_config.resume_from else None,
             resume="allow" if train_config.resume_from else None,
             tags=[
                 "pretrain",
-                config.payload["model"]["name"],
+                config.config.model.name,
                 "deep-thin",
                 "gqa",
                 config.selected_gpu.lower(),
@@ -364,7 +388,7 @@ def run_pretrain_launch_body(
             config={
                 "commit": commit,
                 "dirty": dirty,
-                **config.payload,
+                **config.config.model_dump(mode="json", by_alias=True),
                 "train_steps": config.train_steps,
                 "tokens_per_step": config.tokens_per_step,
             },
@@ -377,9 +401,9 @@ def run_pretrain_launch_body(
     cost = {
         "elapsed_seconds": elapsed,
         "selected_gpu": config.selected_gpu,
-        "usd_per_hour": config.selected_gpu_profile["usd_per_hour"],
-        "estimated_cost_usd": elapsed * config.selected_gpu_profile["usd_per_hour"] / 3600.0,
-        "runtime_spend_stop_usd": config.payload["runtime"]["runtime_spend_stop_usd"],
+        "usd_per_hour": config.selected_gpu_profile.usd_per_hour,
+        "estimated_cost_usd": elapsed * config.selected_gpu_profile.usd_per_hour / 3600.0,
+        "runtime_spend_stop_usd": config.config.runtime.runtime_spend_stop_usd,
     }
     write_cost(output_dir, cost)
     write_environment(output_dir)
@@ -422,8 +446,8 @@ def _arm_spend_alarm(config: PretrainLaunchConfig) -> None:
     if not hasattr(signal, "SIGALRM"):
         return
     seconds_to_spend_stop = int(
-        config.payload["runtime"]["runtime_spend_stop_usd"]
-        / config.selected_gpu_profile["usd_per_hour"]
+        config.config.runtime.runtime_spend_stop_usd
+        / config.selected_gpu_profile.usd_per_hour
         * 3600
     )
     # Leave time for the exception to unwind and the wrapper to commit the Volume.

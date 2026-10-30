@@ -12,15 +12,20 @@ license = { text = "MIT" }
 authors = [{ name = "Adam Thuvesen" }]
 dependencies = [
   "numpy>=2.0",
+  "pydantic>=2.12",
   "tokenizers>=0.21",
   "torch>=2.7",
 ]
 
 [project.optional-dependencies]
 dev = [
+  "import-linter>=2.15",
   "modal==1.5.0",
+  "plotly>=6.1",
   "pytest>=8.2",
   "ruff>=0.5",
+  "ty>=0.0.97",
+  "wandb>=0.19",
 ]
 baselines = [
   "lm-eval==0.4.12",
@@ -51,3 +56,55 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.ty.src]
+include = ["src", "scripts"]
+
+[tool.importlinter]
+root_package = "esme_pretrain"
+
+[[tool.importlinter.contracts]]
+name = "Study owns its protocol without CLI, launch, or post-run dependencies"
+type = "forbidden"
+source_modules = ["esme_pretrain.study"]
+forbidden_modules = ["esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun"]
+
+[[tool.importlinter.contracts]]
+name = "Launch must not depend on CLI policy"
+type = "forbidden"
+source_modules = ["esme_pretrain.launch"]
+forbidden_modules = ["esme_pretrain.cli"]
+
+[[tool.importlinter.contracts]]
+name = "Artifact and data domains do not depend on operations"
+type = "forbidden"
+source_modules = [
+  "esme_pretrain.artifacts",
+  "esme_pretrain.data",
+]
+forbidden_modules = [
+  "esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun",
+  "esme_pretrain.baselines", "esme_pretrain.study", "esme_pretrain.training",
+  "esme_pretrain.pretrain_run", "esme_pretrain.pretrain_config",
+]
+
+[[tool.importlinter.contracts]]
+name = "Modeling and torch are independent of data and operations"
+type = "forbidden"
+source_modules = ["esme_pretrain.modeling", "esme_pretrain.torch"]
+forbidden_modules = [
+  "esme_pretrain.artifacts", "esme_pretrain.data", "esme_pretrain.training",
+  "esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun",
+  "esme_pretrain.baselines", "esme_pretrain.study",
+  "esme_pretrain.pretrain_run", "esme_pretrain.pretrain_config",
+]
+
+[[tool.importlinter.contracts]]
+name = "Training does not depend on operation policy"
+type = "forbidden"
+source_modules = ["esme_pretrain.training"]
+forbidden_modules = [
+  "esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun",
+  "esme_pretrain.baselines", "esme_pretrain.study",
+  "esme_pretrain.pretrain_run", "esme_pretrain.pretrain_config",
+]

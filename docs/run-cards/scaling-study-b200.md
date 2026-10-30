@@ -218,7 +218,8 @@ If every container ran to its timeout, the total would be about 12 B200-hours.
   - Every arm is spawned into a detached app, each in its own single-use B200
     container, at most 4 at once. A client disconnect neither stops nor drops an
     arm. Rows are written to the volume as runs finish.
-  - The `study` stage enforces rule 6 of the LR selection.
+  - `study/lr_gate.py` enforces rule 6 using the complete configured LR sweep.
+    It refuses non-finite losses, duplicate rows, and conflicting run or evaluation identities.
   - The `heldout` stage scores the 214M checkpoint only when the prediction
     file is committed in `HEAD`, predicts the 214M point, was fit on exactly the
     12 depth-family runs, and used the settings above. It also checks that the
@@ -226,7 +227,12 @@ If every container ran to its timeout, the total would be about 12 B200-hours.
   - `--check-only` prices a stage. A real launch needs `--approved` and a spend
     cap that covers the worst case.
 - `esme-pretrain scaling-fit` reads the study's rows directly, one point per
-  run, and refuses an arm that is missing a planned run.
+  run, and refuses missing, duplicate, or conflicting planned runs.
+  `--config` selects the authoritative study plan. Older rows can omit `arm_runs`.
+  Run identity, evaluation token count, and evaluation hash are required.
+  Counts follow the fixed loader's complete batches, so this plan scores `10,002,432` tokens.
+  The fit records hashes of its selected plan, point values, and source rows.
+  The heldout stage requires this evidence. Exploratory `--points` fits cannot approve it.
 
 ## Commands
 

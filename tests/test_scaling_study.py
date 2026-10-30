@@ -4,16 +4,26 @@ import copy
 import hashlib
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from esme_pretrain.cli.study import fit_settings
 from esme_pretrain.data.token_shards import write_token_shards
 from esme_pretrain.launch import scaling_study
+from esme_pretrain.pretrain_config import PretrainRunConfig
 from esme_pretrain.study.arm_training import study_validation_batches, train_study_arm
-from esme_pretrain.study.plan import load_study_plan, study_plan_from_payloads
+from esme_pretrain.study.data_paths import resolve_study_data
+from esme_pretrain.study.lr_gate import LR_GATE_RESULTS, check_lr_gate
+from esme_pretrain.study.plan import StudyConfig, load_study_plan, study_plan
+from esme_pretrain.study.prediction import fit_settings
+from esme_pretrain.study.results import load_study_fit_input
 from esme_pretrain.torch import torch
+from esme_pretrain.training.eval_batch import hash_eval_batches
+from esme_pretrain.training.shard_loader import (
+    fixed_validation_batches,
+    fixed_validation_token_count,
+)
 
 CONFIG = Path("configs/scaling_study.json")
 VOCAB_SIZE = 128
@@ -21,7 +31,7 @@ VOCAB_SIZE = 128
 
 def test_real_study_plan_branches_fork_inside_the_main_runs_peak_phase() -> None:
     plan = load_study_plan(CONFIG)
-    warmup = int(plan.optimizer["warmup_steps"])
+    warmup = int(plan.optimizer.warmup_steps)
     for arm in plan.arms_for("study"):
         main, *branches = arm.runs
         assert main.checkpoint_steps == tuple(sorted(branch.fork_step for branch in branches))
@@ -47,10 +57,13 @@ def test_study_plan_refuses_a_branch_that_forks_inside_warmup() -> None:
         }
     ]
     with pytest.raises(ValueError, match="outside the main run's peak-LR phase"):
-        study_plan_from_payloads(payload, base)
+        study_plan(
+            StudyConfig.model_validate_json(json.dumps(payload)),
+            PretrainRunConfig.model_validate_json(json.dumps(base)).model,
+        )
 
 
-def _tiny_study(tmp_path: Path):
+def _tiny_study(tmp_path: Path, *, added_arm: bool = False):
     tokenizer = tmp_path / "tokenizer.json"
     tokenizer.write_text('{"fixture": true}', encoding="utf-8")
     tokenizer_sha256 = hashlib.sha256(tokenizer.read_bytes()).hexdigest()
@@ -102,7 +115,40 @@ def _tiny_study(tmp_path: Path):
             "seed": 0,
         }
     ]
-    return study_plan_from_payloads(payload, base), shard_dir, tokenizer, tokenizer_sha256
+    if added_arm:
+        payload["arms"].append(
+            {
+                "arm": "tiny-added",
+                "stage": "smoke",
+                "shape": "tiny",
+                "steps": 4,
+                "warmup_steps": 1,
+                "seed": 0,
+            }
+        )
+    plan = study_plan(
+        StudyConfig.model_validate_json(json.dumps(payload)),
+        PretrainRunConfig.model_validate_json(json.dumps(base)).model,
+    )
+    batches = fixed_validation_batches(
+        shard_dir / "validation-manifest.json",
+        vocab_size=VOCAB_SIZE,
+        tokenizer_sha256=tokenizer_sha256,
+        context_length=16,
+        batch_size=plan.eval.batch_size,
+        eval_token_budget=64,
+        expected_token_batch_sha256=None,
+    )
+    plan = replace(
+        plan,
+        eval=plan.eval.model_copy(
+            update={
+                "eval_token_budget": 64,
+                "expected_token_batch_sha256": hash_eval_batches(batches),
+            }
+        ),
+    )
+    return plan, shard_dir, tokenizer, tokenizer_sha256
 
 
 def test_study_arm_trains_main_and_branch_and_writes_scored_rows(tmp_path: Path) -> None:
@@ -110,21 +156,17 @@ def test_study_arm_trains_main_and_branch_and_writes_scored_rows(tmp_path: Path)
     arm = plan.arms_for("smoke")[0]
     validation = study_validation_batches(
         plan,
-        shard_dir=shard_dir,
-        tokenizer_sha256=tokenizer_sha256,
+        data_paths=resolve_study_data(plan.data, shard_dir.parent),
         vocab_size=VOCAB_SIZE,
         context_length=16,
         device="cpu",
-        eval_token_budget=64,
-        expected_token_batch_sha256=None,
     )
     commits = []
 
     rows = train_study_arm(
         arm,
         plan,
-        shard_dir=shard_dir,
-        tokenizer_path=tokenizer,
+        data_paths=resolve_study_data(plan.data, shard_dir.parent),
         work_dir=tmp_path / "work",
         results_dir=tmp_path / "results",
         validation_batches=validation,
@@ -134,15 +176,15 @@ def test_study_arm_trains_main_and_branch_and_writes_scored_rows(tmp_path: Path)
         commit_results=lambda: commits.append(True),
     )
 
-    assert [row["run"] for row in rows] == ["main", "branch-5steps"]
-    assert all(row["arm_runs"] == ["main", "branch-5steps"] for row in rows)
-    assert rows[1]["fork_step"] == 4 and rows[1]["tokens"] == 5 * 32
-    assert all(math.isfinite(row["val_ce"]) for row in rows)
+    assert [row.run for row in rows] == ["main", "branch-5steps"]
+    assert all(row.arm_runs == ("main", "branch-5steps") for row in rows)
+    assert rows[1].fork_step == 4 and rows[1].tokens == 5 * 32
+    assert all(math.isfinite(row.val_ce) for row in rows)
     assert len(commits) == 2
     for row in rows:
-        on_disk = json.loads((tmp_path / "results" / "tiny" / f"{row['run']}.json").read_text())
-        assert on_disk["val_ce"] == row["val_ce"]
-        assert (tmp_path / "results" / "tiny" / f"{row['run']}-metrics.jsonl").exists()
+        on_disk = json.loads((tmp_path / "results" / "tiny" / f"{row.run}.json").read_text())
+        assert on_disk["val_ce"] == row.val_ce
+        assert (tmp_path / "results" / "tiny" / f"{row.run}-metrics.jsonl").exists()
 
 
 def test_check_only_prices_a_stage_without_spending(capsys) -> None:
@@ -159,11 +201,11 @@ def test_check_only_prices_a_stage_without_spending(capsys) -> None:
 
 
 def test_lr_gate_refuses_the_lr_that_failed_it() -> None:
-    # The recorded gate put 6e-4 0.093 nats behind 1.2e-3 at L6, past the 0.02 stop rule.
+    # The recorded full sweep rejects the former L6 learning rate under the same stop rule.
     plan = load_study_plan(CONFIG)
     failed = plan.arms_for("lr-gate", ("lr-6e-4",))
-    with pytest.raises(ValueError, match="LR 0.0006 is 0.093 nats worse"):
-        scaling_study._check_lr_gate(failed, scaling_study.LR_GATE_RESULTS[:1])
+    with pytest.raises(ValueError, match="LR 0.0006 is 0.139 nats worse"):
+        check_lr_gate(failed, plan, LR_GATE_RESULTS)
 
 
 def test_study_stage_passes_the_recorded_lr_sweep(capsys) -> None:
@@ -275,8 +317,21 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
         "tokens": 10229514240,
         "val_ce": 2.8,
         "interval": 0.9,
+        "lower": 2.7,
+        "upper": 2.9,
     }
-    prediction.write_text(json.dumps({"prediction": {**target, "tokens": 5_000_000_000}}))
+    prediction.write_text(
+        json.dumps(
+            {
+                "prediction": {**target, "tokens": 5_000_000_000},
+                "points": [],
+                "settings": fit_settings(resamples=1000, seed=0).model_dump(mode="json"),
+                "points_path": "None",
+                "point_count": 0,
+                "fit": {"E": 1.0, "A": 1.0, "alpha": 0.1, "B": 1.0, "beta": 0.1, "objective": 0.0},
+            }
+        )
+    )
     args = ["--stage", "heldout", "--prediction", str(prediction), "--spend-cap-usd", "20"]
     code = scaling_study.launch([*args, "--check-only"])
     assert code == 2
@@ -296,9 +351,48 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
     ]
     assert len(points) == 12
     short_fit = [point for point in points if not point["arm"].startswith("L18/")]
-    settings = fit_settings(resamples=1000, seed=0)
-    fit = {"prediction": target, "points": points, "settings": settings}
-    prediction.write_text(json.dumps({**fit, "points": short_fit}))
+    results_dir = tmp_path / "study-results"
+    for arm in plan.arms_for("study", plan.heldout.fit_arms):
+        directory = results_dir / arm.arm
+        directory.mkdir(parents=True)
+        for run in arm.runs:
+            (directory / f"{run.run}.json").write_text(
+                json.dumps(
+                    {
+                        "arm": arm.arm,
+                        "run": run.run,
+                        "non_embedding_params": run.non_embedding_params,
+                        "study_id": plan.study_id,
+                        "stage": arm.stage,
+                        "shape": run.model.name,
+                        "max_steps": run.max_steps,
+                        "fork_step": run.fork_step,
+                        "learning_rate": run.learning_rate,
+                        "warmup_steps": run.warmup_steps,
+                        "seed": run.seed,
+                        "tokens": run.tokens,
+                        "val_ce": 3.0,
+                        "val_eval_tokens": fixed_validation_token_count(
+                            context_length=run.model.context_length,
+                            batch_size=plan.eval.batch_size,
+                            eval_token_budget=plan.eval.eval_token_budget,
+                        ),
+                        "val_token_batch_sha256": plan.eval.expected_token_batch_sha256,
+                    }
+                )
+            )
+    evidence = load_study_fit_input(results_dir, plan.heldout.fit_arms, plan).evidence
+    settings = fit_settings(resamples=1000, seed=0).model_dump(mode="json")
+    fit = {
+        "prediction": target,
+        "points": points,
+        "settings": settings,
+        "study_evidence": evidence.model_dump(mode="json"),
+        "points_path": "None",
+        "point_count": len(points),
+        "fit": {"E": 1.0, "A": 1.0, "alpha": 0.1, "B": 1.0, "beta": 0.1, "objective": 0.0},
+    }
+    prediction.write_text(json.dumps({**fit, "points": short_fit, "point_count": len(short_fit)}))
     code = scaling_study.launch([*args, "--check-only"])
     assert code == 2
     assert "not fit on the pre-registered 12 points" in capsys.readouterr().err
@@ -336,3 +430,75 @@ def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
 
     assert code == 0
     assert json.loads(capsys.readouterr().out)["heldout_eval"] is False
+
+
+def test_changed_data_paths_and_added_arm_reach_training_and_result_parser(tmp_path: Path) -> None:
+    import shutil
+
+    plan, shard_dir, tokenizer, tokenizer_sha256 = _tiny_study(tmp_path, added_arm=True)
+    volume_root = tmp_path / "volume"
+    configured = {
+        "tokenizer": "tokenizers/bpe-v2.json",
+        "train_manifest": "corpus/train/v2.json",
+        "validation_manifest": "validation/fixed/v2.json",
+    }
+    selected_tokenizer = volume_root / configured["tokenizer"]
+    selected_tokenizer.parent.mkdir(parents=True)
+    shutil.copyfile(tokenizer, selected_tokenizer)
+    (volume_root / "tokenizer.json").write_text("wrong tokenizer")
+    for split, field in (("train", "train_manifest"), ("validation", "validation_manifest")):
+        manifest = json.loads((shard_dir / f"{split}-manifest.json").read_text())
+        target = volume_root / configured[field]
+        target.parent.mkdir(parents=True)
+        for shard in manifest["shards"]:
+            old_path = shard_dir / shard["path"]
+            shard["path"] = f"chunks/{shard['path']}"
+            destination = target.parent / shard["path"]
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(old_path, destination)
+        target.write_text(json.dumps(manifest))
+    plan = replace(plan, data=plan.data.model_copy(update=configured))
+    source_paths = resolve_study_data(plan.data, volume_root)
+    paths = scaling_study.stage_study_data(source_paths, tmp_path / "local-stage")
+    assert paths.tokenizer.read_bytes() == tokenizer.read_bytes()
+    assert paths.train_manifest == paths.root / configured["train_manifest"]
+    assert paths.validation_manifest == paths.root / configured["validation_manifest"]
+    validation = study_validation_batches(
+        plan,
+        data_paths=paths,
+        vocab_size=VOCAB_SIZE,
+        context_length=16,
+        device="cpu",
+    )
+    arm = plan.arms_for("smoke", ("tiny-added",))[0]
+    rows = train_study_arm(
+        arm,
+        plan,
+        data_paths=paths,
+        work_dir=tmp_path / "work-new",
+        results_dir=tmp_path / "new-results",
+        validation_batches=validation,
+        device="cpu",
+        dtype="float32",
+        use_compile=False,
+        commit_results=lambda: None,
+    )
+    parsed = load_study_fit_input(tmp_path / "new-results", ("tiny-added",), plan)
+    assert parsed.points[0].val_ce == rows[0].val_ce
+    assert rows[0].val_eval_batches == 1
+    path = tmp_path / "new-results/tiny-added/main.json"
+    saved = json.loads(path.read_text())
+    assert saved["val_eval_batches"] == 1
+    path.write_text(json.dumps({**saved, "val_eval_batches": 2}))
+    with pytest.raises(ValueError, match="val_eval_batches"):
+        load_study_fit_input(tmp_path / "new-results", ("tiny-added",), plan)
+
+
+@pytest.mark.parametrize(
+    "value", ["../tokenizer.json", "/tokenizer.json", "nested/../../file.json", ""]
+)
+def test_study_data_paths_reject_volume_escape(value: str) -> None:
+    payload = json.loads(CONFIG.read_text())
+    payload["data"]["tokenizer"] = value
+    with pytest.raises(ValueError, match="relative file path inside the study volume"):
+        StudyConfig.model_validate_json(json.dumps(payload))

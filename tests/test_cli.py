@@ -52,7 +52,7 @@ def test_pretrain_214m_b200_cli_dry_run_is_guarded(capsys) -> None:
     )
     profile = config.selected_gpu_profile
     expected_hours = round(
-        config.train_token_budget / profile["projected_tokens_per_second"] / 3600,
+        config.train_token_budget / profile.projected_tokens_per_second / 3600,
         2,
     )
     assert payload["runtime"]["selected_gpu_profile"]["expected_duration_hours"] == pytest.approx(

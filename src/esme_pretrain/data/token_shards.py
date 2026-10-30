@@ -19,6 +19,8 @@ from typing import Any, BinaryIO, Protocol
 
 import numpy as np
 
+from esme_pretrain.artifacts.hashes import file_sha256
+
 TOKEN_SHARDS_FORMAT = "esme_token_shards_v1"
 TOKEN_SHARD_DTYPE = "uint16"
 TOKEN_SHARD_BYTES_PER_TOKEN = 2
@@ -27,11 +29,12 @@ ENCODE_BATCH_DOCUMENTS = 1024
 
 
 class SupportsIds(Protocol):
-    ids: list[int]
+    @property
+    def ids(self) -> list[int]: ...
 
 
 class SupportsEncodeBatch(Protocol):
-    def encode_batch(self, texts: list[str]) -> Sequence[SupportsIds]: ...
+    def encode_batch(self, texts: list[str], /) -> Sequence[SupportsIds]: ...
 
 
 @dataclass(frozen=True)
@@ -185,7 +188,7 @@ def load_token_shard_manifest(
                 f"token shard {shard_path} has {actual_bytes} bytes; "
                 f"manifest records {tokens} tokens ({expected_bytes} bytes)"
             )
-        if verify_hashes and _file_sha256(shard_path) != entry["sha256"]:
+        if verify_hashes and file_sha256(shard_path) != entry["sha256"]:
             raise ValueError(f"token shard sha256 does not match the manifest: {shard_path}")
         shards.append(TokenShard(path=shard_path, tokens=tokens, sha256=entry["sha256"]))
 
@@ -224,20 +227,18 @@ class _ShardWriter:
         self._split = split
         self._shard_tokens = shard_tokens
         self._shards: list[dict[str, Any]] = []
-        self._file: BinaryIO | None = None
-        self._final_path: Path | None = None
-        self._tmp_path: Path | None = None
+        self._current: tuple[BinaryIO, Path, Path] | None = None
         self._digest = hashlib.sha256()
         self._tokens_in_shard = 0
 
     def write(self, token_ids: np.ndarray) -> None:
         offset = 0
         while offset < token_ids.size:
-            if self._file is None:
-                self._open_next()
+            current = self._current if self._current is not None else self._open_next()
+            shard_file, _, _ = current
             take = min(self._shard_tokens - self._tokens_in_shard, token_ids.size - offset)
             chunk = token_ids[offset : offset + take].tobytes()
-            self._file.write(chunk)
+            shard_file.write(chunk)
             self._digest.update(chunk)
             self._tokens_in_shard += take
             offset += take
@@ -245,42 +246,38 @@ class _ShardWriter:
                 self._close_current()
 
     def finish(self) -> list[dict[str, Any]]:
-        if self._file is not None:
+        if self._current is not None:
             self._close_current()
         return self._shards
 
-    def _open_next(self) -> None:
+    def _open_next(self) -> tuple[BinaryIO, Path, Path]:
         name = f"{self._split}-{len(self._shards):05d}.bin"
-        self._final_path = self._output_dir / name
-        self._tmp_path = self._output_dir / f"{name}.tmp"
-        self._file = self._tmp_path.open("wb")
+        final_path = self._output_dir / name
+        tmp_path = self._output_dir / f"{name}.tmp"
+        self._current = (tmp_path.open("wb"), tmp_path, final_path)
         self._digest = hashlib.sha256()
         self._tokens_in_shard = 0
+        return self._current
 
     def _close_current(self) -> None:
-        self._file.flush()
-        os.fsync(self._file.fileno())
-        self._file.close()
-        os.replace(self._tmp_path, self._final_path)
+        if self._current is None:
+            return
+        shard_file, tmp_path, final_path = self._current
+        shard_file.flush()
+        os.fsync(shard_file.fileno())
+        shard_file.close()
+        os.replace(tmp_path, final_path)
         self._shards.append(
             {
-                "path": self._final_path.name,
+                "path": final_path.name,
                 "tokens": self._tokens_in_shard,
                 "sha256": self._digest.hexdigest(),
             }
         )
-        self._file = None
+        self._current = None
 
 
 def _write_atomic_text(path: Path, text: str) -> None:
     tmp_path = path.with_name(f"{path.name}.tmp")
     tmp_path.write_text(text, encoding="utf-8")
     os.replace(tmp_path, path)
-
-
-def _file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()

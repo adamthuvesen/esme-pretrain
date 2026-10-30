@@ -263,7 +263,7 @@ def test_eval_refuses_batches_that_differ_from_the_reference_hash(
     monkeypatch.setattr(
         eval_checkpoints,
         "load_pretrain_config",
-        lambda _path: SimpleNamespace(payload={"model": config.to_dict()}),
+        lambda _path: SimpleNamespace(model_config=config),
     )
     monkeypatch.setattr(eval_checkpoints, "load_tokenizer", lambda _path: object())
     monkeypatch.setattr(

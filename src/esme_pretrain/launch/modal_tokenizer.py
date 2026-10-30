@@ -34,11 +34,11 @@ def load_or_train_tokenizer(
             **report,
             "source": "loaded_existing_tokenizer",
             "vocab_size": tokenizer.get_vocab_size(),
-            "target_vocab_size": config.payload["tokenizer"]["vocab_size"],
+            "target_vocab_size": config.config.tokenizer.vocab_size,
         }
-        if config.payload["tokenizer"]["require_round_trip_checks"]:
+        if config.config.tokenizer.require_round_trip_checks:
             report["round_trips"] = _round_trip_checks(tokenizer)
-        if config.payload["tokenizer"]["require_coverage_report"]:
+        if config.config.tokenizer.require_coverage_report:
             report["coverage"] = report.get(
                 "coverage", "byte-level BPE; every UTF-8 byte has a fallback path"
             )
@@ -80,8 +80,8 @@ def train_tokenizer(
     )
     tokenizer.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(
-        vocab_size=config.payload["tokenizer"]["vocab_size"],
-        special_tokens=config.payload["tokenizer"]["special_tokens"],
+        vocab_size=config.config.tokenizer.vocab_size,
+        special_tokens=list(config.config.tokenizer.special_tokens),
         initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
     )
     tokenizer.train_from_iterator(texts, trainer=trainer)
@@ -89,18 +89,15 @@ def train_tokenizer(
     report_path = output_dir / "tokenizer-report.json"
 
     report = {
-        "kind": config.payload["tokenizer"]["kind"],
-        "trainer": config.payload["tokenizer"]["trainer"],
+        "kind": config.config.tokenizer.kind,
+        "trainer": config.config.tokenizer.trainer,
         "vocab_size": tokenizer.get_vocab_size(),
-        "target_vocab_size": config.payload["tokenizer"]["vocab_size"],
+        "target_vocab_size": config.config.tokenizer.vocab_size,
         "source": "trained",
         "round_trips": _round_trip_checks(tokenizer),
         "coverage": "byte-level BPE; every UTF-8 byte has a fallback path",
     }
-    if (
-        require_target_vocab
-        and tokenizer.get_vocab_size() != config.payload["tokenizer"]["vocab_size"]
-    ):
+    if require_target_vocab and tokenizer.get_vocab_size() != config.config.tokenizer.vocab_size:
         raise RuntimeError("tokenizer did not reach the configured vocab size")
     _validate_tokenizer_artifact(
         config,
@@ -120,18 +117,15 @@ def _validate_tokenizer_artifact(
     *,
     require_target_vocab: bool = True,
 ) -> None:
-    if (
-        require_target_vocab
-        and tokenizer.get_vocab_size() != config.payload["tokenizer"]["vocab_size"]
-    ):
+    if require_target_vocab and tokenizer.get_vocab_size() != config.config.tokenizer.vocab_size:
         raise RuntimeError("tokenizer did not reach the configured vocab size")
-    if config.payload["tokenizer"]["require_round_trip_checks"]:
+    if config.config.tokenizer.require_round_trip_checks:
         round_trips = report.get("round_trips")
         if not isinstance(round_trips, list) or not round_trips:
             raise RuntimeError("tokenizer round-trip checks are missing")
         if not all(isinstance(item, dict) and item.get("round_trip") for item in round_trips):
             raise RuntimeError("tokenizer round-trip check failed")
-    if config.payload["tokenizer"]["require_coverage_report"]:
+    if config.config.tokenizer.require_coverage_report:
         coverage = report.get("coverage")
         if not isinstance(coverage, str) or not coverage.strip():
             raise RuntimeError("tokenizer coverage report is missing")
@@ -168,7 +162,7 @@ def _bounded_texts_for_tokenizer(config: PretrainLaunchConfig) -> Iterator[str]:
     emitted_bytes = 0
     # Tokenizer budget is in tokens in the config; bytes are a conservative streaming
     # proxy before the tokenizer exists. The report records this explicitly.
-    max_bytes = config.payload["budgets"]["tokenizer_training_token_budget"] * 4
+    max_bytes = config.config.budgets.tokenizer_training_token_budget * 4
     for text in document_text_stream(config, split="train"):
         encoded = text.encode("utf-8", errors="strict")
         if emitted_bytes + len(encoded) > max_bytes:

@@ -65,8 +65,21 @@ if modal is not None:  # pragma: no cover - exercised by Modal, not local unit t
         if json:
             argv.append("--json")
         argv.append("--spawn" if spawn else "--no-spawn")
-        raise SystemExit(launch(argv, run_pretrain_launch=run_pretrain_launch))
+        raise SystemExit(
+            launch(
+                argv,
+                run_pretrain_launch=run_pretrain_launch,
+                modal_gpu=PRETRAIN_GPU,
+                modal_timeout_hours=PRETRAIN_TIMEOUT_HOURS,
+            )
+        )
 
 
 if __name__ == "__main__":
-    raise SystemExit(launch(run_pretrain_launch=run_pretrain_launch))
+    raise SystemExit(
+        launch(
+            run_pretrain_launch=run_pretrain_launch,
+            modal_gpu=PRETRAIN_GPU,
+            modal_timeout_hours=PRETRAIN_TIMEOUT_HOURS,
+        )
+    )

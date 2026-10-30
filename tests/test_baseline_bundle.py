@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from esme_pretrain.artifacts.hashes import file_sha256
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
 from esme_pretrain.postrun.bundle import load_bundle
-from esme_pretrain.postrun.eval_checkpoints import file_sha256
 from esme_pretrain.postrun.export_bundle import ExportConfig, export_checkpoint
 from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import save_pretrain_checkpoint

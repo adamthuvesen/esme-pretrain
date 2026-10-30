@@ -207,6 +207,43 @@ def test_gqa_requires_kv_heads_to_divide_query_heads() -> None:
         _small_config(attention_kind="gqa", kv_heads=3)
 
 
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "vocab_size",
+        "context_length",
+        "embedding_dim",
+        "layers",
+        "heads",
+        "feedforward_dim",
+        "kv_heads",
+    ],
+)
+@pytest.mark.parametrize("value", [0, -1, 1.5, True])
+def test_structural_dimensions_reject_invalid_values(field_name, value) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        _small_config(**{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["rope_theta", "rms_norm_eps", "z_loss_weight"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), True])
+def test_numeric_model_settings_must_be_finite(field_name, value) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        _small_config(**{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["rope_theta", "rms_norm_eps"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_rope_and_norm_settings_must_be_positive(field_name, value) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        _small_config(**{field_name: value})
+
+
+def test_rope_requires_even_head_dimension() -> None:
+    with pytest.raises(ValueError, match="head_dim.*even"):
+        _small_config(embedding_dim=12, heads=4)
+
+
 def test_config_round_trip_and_rejects_unknown_keys() -> None:
     config = _small_config()
     restored = BackboneConfig.from_dict(config.to_dict())

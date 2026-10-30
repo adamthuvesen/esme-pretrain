@@ -1,19 +1,25 @@
 .DEFAULT_GOAL := check
-.PHONY: install fmt lint test check
+.PHONY: install fmt lint types imports test check
 
 install:  ## Sync the dev environment and activate the repo's git hooks
-	uv sync --extra dev
+	uv sync --locked --extra dev
 	git config core.hooksPath .githooks
 
 fmt:  ## Auto-format and apply safe lint fixes
-	uv run ruff format .
-	uv run ruff check --fix .
+	uv run --locked ruff format .
+	uv run --locked ruff check --fix .
 
 lint:  ## Lint and format-check (no changes)
-	uv run ruff check .
-	uv run ruff format --check .
+	uv run --locked ruff check .
+	uv run --locked ruff format --check .
 
-test:  ## Run unit tests
-	uv run python -m pytest
+types:  ## Type-check all production modules and scripts
+	uv run --locked ty check
 
-check: lint test  ## The gate: lint + format-check + unit tests
+imports:  ## Check domain dependency contracts
+	uv run --locked lint-imports
+
+test:  ## Run offline unit and integration tests
+	uv run --locked python -m pytest
+
+check: lint types imports test  ## The local and CI gate

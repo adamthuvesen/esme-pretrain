@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from itertools import islice
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import Any, cast
 
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone, language_model_loss
 from esme_pretrain.torch import torch
@@ -168,7 +168,7 @@ def _param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str,
     tied to the LM head) pulls every token toward the origin. ``norms`` (1D) are
     already exempt. Everything else 2D (attention/MLP projections) decays.
     """
-    base = getattr(model, "_orig_mod", model)  # unwrap torch.compile to find the embedding
+    base = cast(DenseBackbone, getattr(model, "_orig_mod", model))
     embedding_param = base.token_embedding.weight
     decay, no_decay = [], []
     for parameter in model.parameters():

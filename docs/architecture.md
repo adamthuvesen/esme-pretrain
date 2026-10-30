@@ -35,7 +35,9 @@ flowchart TB
     end
 
     subgraph study [study/]
-        Plan["plan: arms, runs, branches"]
+        Plan["plan: typed settings, arms, runs, branches"]
+        Prediction["prediction: fit settings + heldout contract"]
+        Results["results: planned completeness + identity"]
         Arm["arm_training: train + score"]
         Law["scaling_law: fit + bootstrap"]
     end
@@ -91,8 +93,37 @@ and the `scaling-fit` command. Those edges are left out of the map.
 Dependency direction stays simple:
 
 ```text
-cli -> launch + postrun + baselines + study -> data + training -> modeling
+cli -> launch + postrun + baselines + study
+launch -> study + pretrain_run
+study -> data + training + modeling + artifacts
+pretrain_run -> pretrain_config -> data + modeling
 ```
+
+`study/plan.py` owns immutable study settings and run expansion.
+`study/results.py` checks planned completeness, run identity, and fixed evaluation identity.
+`study/lr_gate.py` validates the recorded sweep and applies its registered stop rule.
+`study/prediction.py` owns fit settings and prediction validation.
+The CLI parses arguments and writes output. Launch code owns Git checks and Modal execution.
+
+`pretrain_config.py` defines the JSON structure.
+`pretrain_run.py` enforces the accepted run policy and derives launch values.
+Each launcher binds selected work, hardware, timeout, and cost into a typed plan before execution.
+Dry runs and paid execution consume the same plan. `launch/budget.py` owns per-launch cost bounds.
+`artifacts/hashes.py` and `data/token_bytes.py` provide shared hashing and byte accounting.
+`make check` type-checks every module under `src` and `scripts`, including new files.
+Five import contracts protect study, launch, data/artifacts, modeling/torch, and training ownership.
+Modeling stays independent. Data and training cannot depend on operation policy.
+
+Study data paths are relative to the configured volume root.
+The launch plan resolves tokenizer and manifest paths before execution.
+Local staging preserves each manifest's relative shard paths and copies only referenced inputs.
+
+A fit from `--results-dir` records validated source-row hashes, point-value hashes, and evaluation identity.
+Its plan hash covers selected arms, inherited model settings, optimizer, data, evaluation, and heldout token budget.
+Changing those inputs requires a new fit. Unselected arms and output paths do not affect the hash.
+The heldout launcher checks this evidence without reopening gitignored source rows.
+Source hashes support traceability. They do not authenticate manually edited artifacts.
+Exploratory `--points` fits remain readable but cannot approve heldout evaluation.
 
 The one production model implementation is
 [`DenseBackbone`](../src/esme_pretrain/modeling/backbone.py); training, eval,
@@ -122,7 +153,7 @@ Experiments use the same training loop on pre-tokenized shards.
 `study/plan.py` expands `configs/scaling_study.json` into runs, and
 `launch/scaling_study.py` runs each arm in its own single-use B200 container.
 Each run's validation loss is written to a Modal volume as soon as it is
-scored. `study/scaling_law.py` fits the scaling law to those rows.
+scored. `study/results.py` verifies planned completeness before `study/scaling_law.py` fits those rows.
 
 ## Training And Measurement Conventions
 

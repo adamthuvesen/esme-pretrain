@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import numpy as np
@@ -109,7 +109,7 @@ class ShardBatchLoader:
             )
         self._skip_tokens = value
 
-    def __iter__(self) -> Iterator[Batch]:
+    def __iter__(self) -> Generator[Batch]:
         first_window = self._skip_tokens // self.window
         tokens_per_batch = self.window * self.batch_size
 
@@ -143,6 +143,16 @@ class ShardBatchLoader:
             offset = (int(window_id) - int(shard_start)) * self.window
             rows[row] = self._shards[shard_id][offset : offset + self.window]
         return rows
+
+
+def fixed_validation_token_count(
+    *, context_length: int, batch_size: int, eval_token_budget: int
+) -> int:
+    """Count input tokens through the first full batch that reaches the budget."""
+    if context_length < 1 or batch_size < 1 or eval_token_budget < 1:
+        raise ValueError("context_length, batch_size, and eval_token_budget must be positive")
+    tokens_per_batch = context_length * batch_size
+    return ((eval_token_budget + tokens_per_batch - 1) // tokens_per_batch) * tokens_per_batch
 
 
 def fixed_validation_batches(

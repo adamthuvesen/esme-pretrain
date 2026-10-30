@@ -14,8 +14,9 @@ from esme_pretrain.baselines.config import (
     HFModel,
 )
 from esme_pretrain.data.corpus_stream import document_text_stream
+from esme_pretrain.data.token_bytes import partitioned_byte_counts
 from esme_pretrain.postrun.bundle import load_bundle
-from esme_pretrain.postrun.eval_checkpoints import load_tokenizer, partitioned_byte_counts
+from esme_pretrain.postrun.eval_checkpoints import load_tokenizer
 from esme_pretrain.pretrain_run import load_pretrain_config
 from esme_pretrain.torch import torch
 
@@ -82,7 +83,8 @@ class _LogitsOnly(torch.nn.Module):
         super().__init__()
         self.inner = inner
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+    # PyTorch declares Module.forward as a mutable Callable attribute.
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         return self.inner(input_ids).logits
 
 

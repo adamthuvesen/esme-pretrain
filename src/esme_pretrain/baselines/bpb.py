@@ -7,12 +7,11 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from esme_pretrain.postrun.eval_checkpoints import (
+from esme_pretrain.data.token_bytes import (
     FixedEvalBatch,
     batch_token_byte_windows,
-    hash_eval_batches,
 )
-from esme_pretrain.training.eval_batch import mean_ce_loss
+from esme_pretrain.training.eval_batch import hash_eval_batches, mean_ce_loss
 
 if TYPE_CHECKING:
     from esme_pretrain.baselines.models import EvalModel

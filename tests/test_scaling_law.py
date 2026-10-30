@@ -147,34 +147,54 @@ def test_scaling_fit_cli_rejects_malformed_points_file(tmp_path, capsys) -> None
     assert exit_code == 2
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err.startswith("scaling-fit failed: point 0 must be an object")
+    assert captured.err.startswith("scaling-fit failed: cannot read loss points")
     assert captured.err.count("\n") == 1
     assert not output_path.exists()
 
 
-def write_study_rows(results_dir, points) -> None:
-    for index, point in enumerate(points):
-        arm = f"L{index // 4}"
-        row_dir = results_dir / arm
+def write_study_rows(results_dir) -> None:
+    from pathlib import Path
+
+    from esme_pretrain.study.plan import load_study_plan
+    from esme_pretrain.training.shard_loader import fixed_validation_token_count
+
+    plan = load_study_plan(Path("configs/scaling_study.json"))
+    for arm in plan.arms_for("study", ("L6", "L12", "L18")):
+        row_dir = results_dir / arm.arm
         row_dir.mkdir(exist_ok=True)
-        row = {
-            "arm": arm,
-            "run": f"run{index % 4}",
-            "arm_runs": [f"run{run}" for run in range(4)],
-            "non_embedding_params": point.non_embedding_params,
-            "tokens": point.tokens,
-            "val_ce": point.val_ce,
-            "steady_tokens_per_second": 1.0,
-        }
-        (row_dir / f"run{index % 4}.json").write_text(json.dumps(row))
-        (row_dir / f"run{index % 4}-metrics.jsonl").write_text("{}\n")
+        for run in arm.runs:
+            row = {
+                "arm": arm.arm,
+                "run": run.run,
+                "arm_runs": [r.run for r in arm.runs],
+                "non_embedding_params": run.non_embedding_params,
+                "study_id": plan.study_id,
+                "stage": arm.stage,
+                "shape": run.model.name,
+                "max_steps": run.max_steps,
+                "fork_step": run.fork_step,
+                "learning_rate": run.learning_rate,
+                "warmup_steps": run.warmup_steps,
+                "seed": run.seed,
+                "tokens": run.tokens,
+                "val_ce": true_loss(run.non_embedding_params, run.tokens),
+                "steady_tokens_per_second": 1.0,
+                "val_eval_tokens": fixed_validation_token_count(
+                    context_length=run.model.context_length,
+                    batch_size=plan.eval.batch_size,
+                    eval_token_budget=plan.eval.eval_token_budget,
+                ),
+                "val_token_batch_sha256": plan.eval.expected_token_batch_sha256,
+            }
+            (row_dir / f"{run.run}.json").write_text(json.dumps(row))
+            (row_dir / f"{run.run}-metrics.jsonl").write_text("{}\n")
 
 
 def test_scaling_fit_refuses_an_arm_missing_a_planned_run(tmp_path, capsys) -> None:
     # A container that stops after some branches leaves a partial arm; with the
     # other arms the fit would still clear its 5-point minimum on fewer points.
-    write_study_rows(tmp_path, study_points())
-    (tmp_path / "L1" / "run3.json").unlink()
+    write_study_rows(tmp_path)
+    (tmp_path / "L12" / "branch-20x.json").unlink()
 
     exit_code = main(
         [
@@ -182,9 +202,9 @@ def test_scaling_fit_refuses_an_arm_missing_a_planned_run(tmp_path, capsys) -> N
             "--results-dir",
             str(tmp_path),
             "--arm",
-            "L0",
+            "L6",
             "--arm",
-            "L1",
+            "L12",
             "--predict-non-embedding-params",
             str(HELD_OUT_NON_EMBEDDING_PARAMS),
             "--predict-tokens",
@@ -195,14 +215,14 @@ def test_scaling_fit_refuses_an_arm_missing_a_planned_run(tmp_path, capsys) -> N
     )
 
     assert exit_code == 2
-    assert "arm 'L1' is incomplete" in capsys.readouterr().err
+    assert "arm 'L12' is incomplete" in capsys.readouterr().err
     assert not (tmp_path / "fit.json").exists()
 
 
 def test_scaling_fit_reads_study_result_rows_per_arm(tmp_path) -> None:
     # The study writes <arm>/<run>.json rows with many fields; the fit must take one
     # point per run, labeled arm/run, and ignore the per-run metrics files.
-    write_study_rows(tmp_path, study_points())
+    write_study_rows(tmp_path)
     output_path = tmp_path / "fit.json"
 
     exit_code = main(
@@ -211,11 +231,11 @@ def test_scaling_fit_reads_study_result_rows_per_arm(tmp_path) -> None:
             "--results-dir",
             str(tmp_path),
             "--arm",
-            "L0",
+            "L6",
             "--arm",
-            "L1",
+            "L12",
             "--arm",
-            "L2",
+            "L18",
             "--predict-non-embedding-params",
             str(HELD_OUT_NON_EMBEDDING_PARAMS),
             "--predict-tokens",

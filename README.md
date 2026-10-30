@@ -136,10 +136,13 @@ make install
 Run the checks:
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+make check
 ```
+
+`make check` runs locked Ruff, all-source ty, import-linter, and offline CPU tests locally and in CI.
+Type errors identify stale config access. Import contracts name the domain that owns the code.
+New modules and scripts enter the type gate automatically.
+The CPU suite proves training, resume, fixed evaluation, export, and bundle loading.
 
 Check the 214M training config without touching data or GPUs:
 

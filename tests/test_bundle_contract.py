@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from esme_pretrain.artifacts.hashes import file_sha256
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
 from esme_pretrain.postrun.bundle import load_bundle
-from esme_pretrain.postrun.eval_checkpoints import file_sha256
 from esme_pretrain.postrun.export_bundle import (
     BUNDLE_SCHEMA_VERSION,
     CANONICAL_BUNDLE_FORMAT,
@@ -227,3 +227,105 @@ def test_load_bundle_rejects_tampered_tokenizer(contract_bundle) -> None:
 
     with pytest.raises(ValueError, match="hash mismatch for tokenizer.json"):
         load_bundle(bundle_dir)
+
+
+def test_cpu_training_resume_fixed_eval_export_and_load_bundle(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+
+    from esme_pretrain.data.token_bytes import (
+        FixedEvalBatch,
+        batch_token_byte_windows,
+        token_byte_counts,
+    )
+    from esme_pretrain.postrun.eval_checkpoints import evaluate_checkpoint
+    from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
+    from esme_pretrain.training.data_stream import StreamingBatchLoader, synthetic_token_stream
+    from esme_pretrain.training.eval_batch import hash_eval_batches, mean_ce_loss
+    from esme_pretrain.training.metrics import RunLogger, WandbSettings
+    from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
+
+    model_config = _contract_config()
+    vocabulary = {
+        token: index
+        for index, token in enumerate(
+            ["<pad>", "<bos>", "<eos>", "<unk>"] + [f"word{i}" for i in range(28)]
+        )
+    }
+    tokenizer = Tokenizer(WordLevel(vocabulary, unk_token="<unk>"))
+    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tokenizer.save(str(tokenizer_path))
+    output_dir = tmp_path / "train"
+    config = PretrainConfig(
+        model=model_config,
+        max_steps=4,
+        micro_batch_size=2,
+        learning_rate=1e-3,
+        warmup_steps=1,
+        dtype="float32",
+        device="cpu",
+        use_compile=False,
+        use_fused_optimizer=False,
+        checkpoint_interval=2,
+        output_dir=output_dir,
+    )
+
+    def loader():
+        return StreamingBatchLoader(
+            synthetic_token_stream(model_config.vocab_size, seed=7),
+            batch_size=2,
+            context_length=model_config.context_length,
+            device="cpu",
+        )
+
+    logger = RunLogger(output_dir, WandbSettings(enabled=False))
+    run_pretrain(config, loader(), logger=logger)
+    logger.finish()
+    reference = load_pretrain_checkpoint(output_dir / "checkpoint.pt")
+    resumed_config = replace(
+        config, resume_from=output_dir / "checkpoint-step2.pt", output_dir=tmp_path / "resumed"
+    )
+    resumed_logger = RunLogger(resumed_config.output_dir, WandbSettings(enabled=False))
+    resumed = run_pretrain(resumed_config, loader(), logger=resumed_logger)
+    resumed_logger.finish()
+    resumed_path = resumed_config.output_dir / "checkpoint.pt"
+    loaded = load_pretrain_checkpoint(resumed_path)
+    assert resumed.start_step == 2 and resumed.steps_completed == 2
+    assert loaded.step == reference.step == 4
+    assert loaded.data_offset_tokens == reference.data_offset_tokens
+    for key, value in reference.model.state_dict().items():
+        assert torch.equal(loaded.model.state_dict()[key], value)
+
+    text = " ".join(f"word{i % 28}" for i in range(40))
+    encoding = tokenizer.encode(text)
+    token_bytes = zip(
+        encoding.ids, token_byte_counts(text, encoding, token_count=len(encoding.ids)), strict=True
+    )
+    batches = [
+        FixedEvalBatch(ids[:, :-1], ids[:, 1:], counts[:, 1:])
+        for ids, counts in batch_token_byte_windows(token_bytes, window=9, batch_size=2)
+    ]
+    before_hash = hash_eval_batches(batches)
+    reference_eval = evaluate_checkpoint(
+        output_dir / "checkpoint.pt", batches, device="cpu", expected_config=model_config
+    )
+    resumed_eval = evaluate_checkpoint(
+        resumed_path, batches, device="cpu", expected_config=model_config
+    )
+    assert reference_eval.ce_loss == resumed_eval.ce_loss
+    assert hash_eval_batches(batches) == before_hash
+
+    bundle_dir = tmp_path / "bundle"
+    manifest = export_checkpoint(ExportConfig(resumed_path, tokenizer_path, bundle_dir))
+    bundle = load_bundle(bundle_dir)
+    assert bundle.checkpoint_step == 4
+    assert manifest["source_checkpoint_sha256"] == file_sha256(resumed_path)
+    assert (bundle_dir / "tokenizer.json").read_bytes() == tokenizer_path.read_bytes()
+    bundle_ce = mean_ce_loss(
+        bundle.model, ((b.input_ids, b.targets) for b in batches), device="cpu"
+    )
+    assert bundle_ce == resumed_eval.ce_loss

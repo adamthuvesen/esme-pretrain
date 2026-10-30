@@ -7,9 +7,10 @@ import sys
 import time
 from pathlib import Path
 
+from esme_pretrain.artifacts.hashes import file_sha256
 from esme_pretrain.data.corpus_stream import document_text_stream
 from esme_pretrain.data.token_shards import manifest_path_for, write_token_shards
-from esme_pretrain.postrun.eval_checkpoints import file_sha256, load_tokenizer
+from esme_pretrain.postrun.eval_checkpoints import load_tokenizer
 from esme_pretrain.pretrain_run import load_pretrain_config
 
 
@@ -54,7 +55,7 @@ def handle_pretokenize(args: argparse.Namespace) -> int:
     try:
         config = load_pretrain_config(args.config)
         tokenizer = load_tokenizer(args.tokenizer)
-        vocab_size = int(config.payload["model"]["vocab_size"])
+        vocab_size = int(config.config.model.vocab_size)
         if tokenizer.get_vocab_size() > vocab_size:
             raise ValueError(
                 f"tokenizer vocabulary {tokenizer.get_vocab_size()} is larger than the "
@@ -63,7 +64,7 @@ def handle_pretokenize(args: argparse.Namespace) -> int:
         eos_id = tokenizer.token_to_id("<eos>")
         if eos_id is None:
             raise ValueError("tokenizer is missing required token '<eos>'")
-        dataset_cfg = config.payload["dataset"]
+        dataset_cfg = config.config.dataset
         parquet_files = sorted(args.corpus_parquet)
         missing = [str(path) for path in parquet_files if not path.exists()]
         if missing:
@@ -72,13 +73,13 @@ def handle_pretokenize(args: argparse.Namespace) -> int:
             "config_path": str(args.config),
             "tokenizer_path": str(args.tokenizer),
             "dataset": {
-                "source": dataset_cfg["source"],
-                "subset": dataset_cfg["subset"],
-                "revision": dataset_cfg["revision"],
-                "split": dataset_cfg["split"],
-                "filters": dataset_cfg["filters"],
+                "source": dataset_cfg.source,
+                "subset": dataset_cfg.subset,
+                "revision": dataset_cfg.revision,
+                "split": dataset_cfg.split,
+                "filters": dataset_cfg.filters.model_dump(mode="json"),
             },
-            "split_config": config.payload["split"],
+            "split_config": config.config.split.model_dump(mode="json"),
             "corpus_parquet_files": [
                 {"path": str(path), "bytes": path.stat().st_size} for path in parquet_files
             ],

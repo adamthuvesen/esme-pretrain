@@ -11,14 +11,57 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from esme_pretrain.launch.budget import LaunchBudget, project_cost
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
+from esme_pretrain.pretrain_config import PretrainRunConfig
 from esme_pretrain.pretrain_run import PretrainLaunchConfig, load_pretrain_config
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SMOKE_GPU = os.environ.get("PRETRAIN_SMOKE_GPU", "H100!")
 SMOKE_TIMEOUT_SECONDS = int(float(os.environ.get("PRETRAIN_SMOKE_TIMEOUT_SECONDS", "900")))
 DEFAULT_OUTPUT_DIR = Path("runs/pretrain-214m-b200")
+
+
+class SmokeLaunchPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    config: PretrainRunConfig
+    budget: LaunchBudget
+    max_steps: int = Field(ge=2)
+    micro_batch_size: int = Field(gt=0)
+    grad_accum_steps: int = Field(gt=0)
+
+
+def build_smoke_plan(
+    config: PretrainLaunchConfig,
+    *,
+    gpu: str,
+    timeout_seconds: int,
+    spend_cap_usd: float,
+    max_steps: int,
+    micro_batch_size: int = 0,
+    grad_accum_steps: int = 0,
+) -> SmokeLaunchPlan:
+    if gpu not in config.config.runtime.gpu_profiles:
+        raise ValueError(f"{gpu} is not listed in runtime.gpu_profiles")
+    if gpu not in {"H100!", "H200", "B200"}:
+        raise ValueError(f"{gpu} is not an approved 214M smoke GPU")
+    training = config.config.optimizer.training
+    return SmokeLaunchPlan(
+        config=config.config,
+        budget=LaunchBudget(
+            gpu,
+            timeout_seconds,
+            config.config.runtime.gpu_profiles[gpu].usd_per_hour,
+            spend_cap_usd,
+        ),
+        max_steps=max_steps,
+        micro_batch_size=micro_batch_size or training.micro_batch_size,
+        grad_accum_steps=grad_accum_steps or training.grad_accum_steps,
+    )
+
 
 try:
     import modal
@@ -34,8 +77,8 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
     app = modal.App("esme-pretrain-214m-b200-gpu-smoke", image=image)
 
     @app.function(gpu=SMOKE_GPU, timeout=SMOKE_TIMEOUT_SECONDS)
-    def run_smoke(config_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
-        return _run_smoke_body(config_payload, params)
+    def run_smoke(plan_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+        return _run_smoke_body(plan_payload, params)
 
     @app.local_entrypoint()
     def main(
@@ -45,6 +88,7 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         grad_accum_steps: int = 0,
         spend_cap_usd: float = 10.0,
         json: bool = True,
+        approved: bool = False,
     ) -> None:
         """Run one short, spend-capped GPU smoke.
 
@@ -65,6 +109,7 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
                     "--spend-cap-usd",
                     str(spend_cap_usd),
                     "--json" if json else "--no-json",
+                    *(["--approved"] if approved else []),
                 ]
             )
         )
@@ -89,26 +134,20 @@ def launch(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Validate the config and spend cap without launching (no spend).",
     )
+    parser.add_argument("--approved", action="store_true", help="Required to rent a GPU.")
     args = parser.parse_args(argv)
 
     try:
-        if args.max_steps < 2:
-            raise ValueError("--max-steps must be at least 2 for the mid-run resume check")
         config = load_pretrain_config(args.config)
-        gpu_profile = _selected_smoke_profile(config, SMOKE_GPU)
-        micro_batch = args.micro_batch_size or int(
-            config.payload["optimizer"]["training"]["micro_batch_size"]
-        )
-        grad_accum = args.grad_accum_steps or int(
-            config.payload["optimizer"]["training"]["grad_accum_steps"]
-        )
-        # Worst case is the whole timeout at the GPU's hourly rate. Refuse before
-        # spending anything if that would exceed the cap.
-        worst_case_cost = _reserved_cost_usd(
+        plan = build_smoke_plan(
+            config,
+            gpu=SMOKE_GPU,
             timeout_seconds=SMOKE_TIMEOUT_SECONDS,
-            usd_per_hour=float(gpu_profile["usd_per_hour"]),
+            spend_cap_usd=args.spend_cap_usd,
+            max_steps=args.max_steps,
+            micro_batch_size=args.micro_batch_size,
+            grad_accum_steps=args.grad_accum_steps,
         )
-        _check_spend_cap(worst_case_cost, args.spend_cap_usd)
     except ValueError as error:
         print(f"pretrain gpu smoke refused: {error}", file=sys.stderr)
         return 2
@@ -119,32 +158,28 @@ def launch(argv: list[str] | None = None) -> int:
                 {
                     "status": "spend_cap_ok",
                     "gpu": SMOKE_GPU,
-                    "worst_case_cost_usd": worst_case_cost,
+                    "worst_case_cost_usd": round(plan.budget.worst_case_cost_usd, 4),
                     "spend_cap_usd": args.spend_cap_usd,
-                    "max_steps": args.max_steps,
-                    "micro_batch_size": micro_batch,
-                    "grad_accum_steps": grad_accum,
+                    "max_steps": plan.max_steps,
+                    "micro_batch_size": plan.micro_batch_size,
+                    "grad_accum_steps": plan.grad_accum_steps,
                 },
                 args.json_output,
             )
         )
         return 0
+    if not args.approved:
+        print("pretrain gpu smoke refused: pass --approved to rent the GPU", file=sys.stderr)
+        return 2
     if modal is None:
         print("pretrain gpu smoke failed: modal is not installed", file=sys.stderr)
         return 2
 
-    params = {
-        "gpu": SMOKE_GPU,
-        "max_steps": args.max_steps,
-        "micro_batch_size": micro_batch,
-        "grad_accum_steps": grad_accum,
-        "commit": local_git_commit(REPO_ROOT),
-        "dirty": local_git_dirty(REPO_ROOT),
-    }
+    params = {"commit": local_git_commit(REPO_ROOT), "dirty": local_git_dirty(REPO_ROOT)}
     wall_start = time.perf_counter()
-    result = run_smoke.remote(config.payload, params)
+    result = run_smoke.remote(plan.model_dump(mode="json", by_alias=True), params)
     result["client_wall_seconds"] = time.perf_counter() - wall_start
-    result["worst_case_cost_usd"] = worst_case_cost
+    result["worst_case_cost_usd"] = round(plan.budget.worst_case_cost_usd, 4)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     safe_gpu = SMOKE_GPU.replace("!", "bang").lower()
@@ -155,30 +190,31 @@ def launch(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+def _run_smoke_body(plan_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
     import torch
 
-    from esme_pretrain.modeling.backbone import BackboneConfig
     from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
     from esme_pretrain.training.data_stream import Batch
     from esme_pretrain.training.metrics import RunLogger, WandbSettings
     from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
 
-    model_config = BackboneConfig.from_dict(config_payload["model"])
-    optimizer = config_payload["optimizer"]
-    training = optimizer["training"]
-    gpu = params["gpu"]
+    plan = SmokeLaunchPlan.model_validate_json(json.dumps(plan_payload))
+    config = plan.config
+    model_config = config.model
+    optimizer = config.optimizer
+    training = optimizer.training
+    gpu = plan.budget.gpu
     started = time.perf_counter()
     print(
         f"pretrain gpu smoke: start gpu={gpu} "
-        f"micro_batch={params['micro_batch_size']} grad_accum={params['grad_accum_steps']}",
+        f"micro_batch={plan.micro_batch_size} grad_accum={plan.grad_accum_steps}",
         flush=True,
     )
 
-    torch.manual_seed(int(training["seed"]))
+    torch.manual_seed(int(training.seed))
     device = torch.device("cuda")
-    micro_batch = int(params["micro_batch_size"])
-    grad_accum = int(params["grad_accum_steps"])
+    micro_batch = int(plan.micro_batch_size)
+    grad_accum = int(plan.grad_accum_steps)
     window = torch.randint(
         0,
         model_config.vocab_size,
@@ -199,25 +235,25 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
     output_dir = Path("/tmp/pretrain-214m-b200-gpu-smoke")
     train_config = PretrainConfig(
         model=model_config,
-        max_steps=int(params["max_steps"]),
+        max_steps=int(plan.max_steps),
         micro_batch_size=micro_batch,
         grad_accum_steps=grad_accum,
-        learning_rate=float(optimizer["learning_rate"]),
-        min_lr_ratio=float(optimizer["min_lr_ratio"]),
-        decay_fraction=float(optimizer["decay_fraction"]),
-        warmup_steps=min(1, int(params["max_steps"])),
-        weight_decay=float(optimizer["weight_decay"]),
-        grad_clip=float(optimizer["grad_clip"]),
-        dtype=training["dtype"],
+        learning_rate=float(optimizer.learning_rate),
+        min_lr_ratio=float(optimizer.min_lr_ratio),
+        decay_fraction=float(optimizer.decay_fraction),
+        warmup_steps=min(1, int(plan.max_steps)),
+        weight_decay=float(optimizer.weight_decay),
+        grad_clip=float(optimizer.grad_clip),
+        dtype=training.dtype,
         device="cuda",
-        use_compile=bool(training["compile"]),
-        use_fused_optimizer=bool(training["fused_optimizer"]),
-        seed=int(training["seed"]),
+        use_compile=bool(training.use_compile),
+        use_fused_optimizer=bool(training.fused_optimizer),
+        seed=int(training.seed),
         log_interval=1,
         eval_interval=0,
         # One mid-run checkpoint one step before the end; the resume check restarts
         # from it under the same schedule, as a preempted run would.
-        checkpoint_interval=int(params["max_steps"]) - 1,
+        checkpoint_interval=int(plan.max_steps) - 1,
         output_dir=output_dir,
     )
     logger = RunLogger(output_dir, WandbSettings(enabled=False))
@@ -270,13 +306,13 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
     print("pretrain gpu smoke: resume complete", flush=True)
 
     elapsed = time.perf_counter() - started
-    profile = config_payload["runtime"]["gpu_profiles"][gpu]
-    projected_cost = _project_cost(
-        train_tokens=int(config_payload["budgets"]["train_token_budget"]),
+    profile = config.runtime.gpu_profiles[gpu]
+    projected_cost = project_cost(
+        train_tokens=int(config.budgets.train_token_budget),
         tokens_per_second=float(result.steady_tokens_per_second or 0.0),
-        usd_per_hour=float(profile["usd_per_hour"]),
+        usd_per_hour=float(profile.usd_per_hour),
     )
-    train_token_budget = int(config_payload["budgets"]["train_token_budget"])
+    train_token_budget = int(config.budgets.train_token_budget)
     loss_finite = all(_is_finite(value) for value in loss_trace)
     loss_decreasing = len(loss_trace) >= 2 and loss_trace[-1] < loss_trace[0]
     resume_ok = (
@@ -296,7 +332,7 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
             "gpu_memory_total": _nvidia_smi("memory.total"),
         },
         "config": {
-            "run_id": config_payload["run_id"],
+            "run_id": config.run_id,
             "model": model_config.to_dict(),
             "max_steps": train_config.max_steps,
             "micro_batch_size": train_config.micro_batch_size,
@@ -325,7 +361,7 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
         },
         "projection": {
             "train_token_budget": train_token_budget,
-            "usd_per_hour": profile["usd_per_hour"],
+            "usd_per_hour": profile.usd_per_hour,
             "estimated_usd_per_1b_tokens": round(
                 projected_cost * 1_000_000_000 / train_token_budget, 2
             )
@@ -336,40 +372,8 @@ def _run_smoke_body(config_payload: dict[str, Any], params: dict[str, Any]) -> d
             else None,
         },
         "remote_wall_seconds": elapsed,
-        "estimated_gpu_cost_usd": round(elapsed * float(profile["usd_per_hour"]) / 3600.0, 4),
+        "estimated_gpu_cost_usd": round(elapsed * float(profile.usd_per_hour) / 3600.0, 4),
     }
-
-
-def _selected_smoke_profile(config: PretrainLaunchConfig, gpu: str) -> dict[str, Any]:
-    profiles = config.payload["runtime"]["gpu_profiles"]
-    if gpu not in profiles:
-        raise ValueError(f"{gpu} is not listed in runtime.gpu_profiles")
-    if gpu not in {"H100!", "H200", "B200"}:
-        raise ValueError(f"{gpu} is not an approved 214M smoke GPU")
-    return dict(profiles[gpu])
-
-
-def _reserved_cost_usd(*, timeout_seconds: float, usd_per_hour: float) -> float:
-    if timeout_seconds <= 0:
-        raise ValueError("timeout_seconds must be positive")
-    if usd_per_hour <= 0:
-        raise ValueError("usd_per_hour must be positive")
-    return round(timeout_seconds * usd_per_hour / 3600.0, 4)
-
-
-def _check_spend_cap(worst_case_cost_usd: float, spend_cap_usd: float) -> None:
-    if worst_case_cost_usd > spend_cap_usd:
-        raise ValueError(
-            f"smoke worst-case cost ${worst_case_cost_usd:.4f} exceeds cap ${spend_cap_usd:.2f}"
-        )
-
-
-def _project_cost(
-    *, train_tokens: int, tokens_per_second: float, usd_per_hour: float
-) -> float | None:
-    if tokens_per_second <= 0:
-        return None
-    return train_tokens / tokens_per_second * usd_per_hour / 3600.0
 
 
 def _is_finite(value: Any) -> bool:
