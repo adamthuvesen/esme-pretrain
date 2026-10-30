@@ -19,28 +19,17 @@ If docs and code disagree, fix the stale doc in the same change.
 
 ## Workflow
 
-- Work from the repo root unless Adam explicitly asks for an isolated worktree.
-- Commit accepted local work on `main`; keep commits small and conventional.
-- Ship through a feature branch and PR with the `ship` skill in babysit mode, never a
-  direct push to `main`. Do not push or open a PR without explicit approval.
-- Before committing, run the checks that match the change and leave `git status --short` clean except ignored runtime files.
-- Use `uv run ...` for project commands.
-
-## Spend And Data
-
-- No FineWeb-Edu, ClimbMix, Modal, GPU, W&B write, or paid API work without an
-  explicit run card and chat approval.
-- Any new corpus or data recipe needs a streaming data audit (per-stage
-  before/after counts, contamination check) and a pre-registered ablation plan
-  before its run card.
-- Full pretrain launch requires the exact command, hardware, cost cap, and `--approved` flag.
-- Use detached Modal launch for long paid runs; local laptop disconnects must not kill training.
-- Keep run outputs, checkpoints, exports, W&B state, `.env*`, and raw/processed data out of git.
+- Use `uv run ...` for project commands. Run `make check` before you commit.
+- Paid work (Modal, GPU, FineWeb-Edu or ClimbMix streaming, W&B writes, paid APIs) needs
+  an explicit run card and chat approval of the exact command, hardware, and cost cap
+  before you pass `--approved`. The code enforces the flag and the caps, not the approval.
 
 ## Code Rules
 
 - Use clear domain names: corpus, tokenizer, packed tokens, checkpoint, run card, eval, export.
 - Make data loss, skipped records, malformed artifacts, resume drift, and config mismatches fail loudly.
+- Put run card constraints in the typed config (`pretrain_config.py`, `data/corpus_config.py`),
+  not in launcher code or prose.
 - Keep post-run eval deterministic: same validation token batches for every checkpoint.
 - Keep `llm-infer` export correctness-first: manifest, config, tokenizer, weights, hashes, and provenance must match the source checkpoint.
 - Avoid trivializing small models or fixtures. Use small, rehearsal, fixture, or synthetic fixture as appropriate.
@@ -49,22 +38,24 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Gates
 
 ```bash
-make check
-uv run esme-pretrain status --json
+make check    # Ruff, all-source ty, import-linter, fast offline CPU tests; first CI job
+make verify   # slow offline tests (statistical fits); second CI job
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
 
-`make check` runs locked Ruff, all-source ty, import-linter, and the offline CPU suite.
-The suite includes training, resume, fixed eval, export, and bundle loading.
-
 ## Enforced Rules
+
+`tests/test_enforced_rules.py` fails when a path, test, or make target below does not exist.
 
 | Rule | Enforced by | Added |
 | --- | --- | --- |
-| Never push `main` directly; ship through a feature branch and PR | `.githooks/pre-push`, active in clones set up with `make install` (the README setup step); tested in `tests/test_pre_push_hook.py`. Clones set up otherwise have no hook. | 2026-10-24 |
-| Study owns its protocol without CLI, launch, or post-run imports | `make imports`, dependency contracts in `pyproject.toml` | 2026-11-04 |
-| Type-check every production module and script | `make types`, `tool.ty.src` covers `src` and `scripts` | 2026-11-04 |
-| Fit complete planned arms with matching run and evaluation identities | `study/results.py`, `tests/test_study_results.py` | 2026-11-04 |
-| Keep modeling independent, and keep data and training below operation policy | `make imports`, five domain contracts in `pyproject.toml` | 2026-11-04 |
-| Apply the registered LR gate only to complete, finite, comparable evidence | `study/lr_gate.py`, `tests/test_study_evidence.py` | 2026-11-04 |
-| Use validated study rows for heldout predictions | `study/prediction.py`, point and plan evidence checked before launch | 2026-11-04 |
+| Every corpus recipe has a data audit run card before any run reads it | `src/esme_pretrain/data/corpus_config.py`, `tests/test_pretrain_214m_b200.py::test_pretrain_config_rejects_unpinned_dataset_revision` | 2026-11-06 |
+| A pretrain run card stays within the $100 absolute spend cap, with no retries | `src/esme_pretrain/pretrain_config.py`, `tests/test_pretrain_214m_b200.py::test_run_card_schema_enforces_the_spend_cap` | 2026-11-06 |
+| Paid launchers refuse without the approval flag and a cap that covers the worst case | `src/esme_pretrain/launch/budget.py`, `tests/test_pretrain_214m_b200.py::test_modal_pretrain_refuses_without_approval`, `tests/test_scaling_study.py::test_study_stage_refuses_a_spend_cap_below_its_worst_case` | 2026-10-24 |
+| Study owns its protocol without CLI, launch, or post-run imports | `make imports`, `pyproject.toml` | 2026-11-04 |
+| Keep modeling independent, and keep data and training below operation policy | `make imports`, `pyproject.toml` | 2026-11-04 |
+| Type-check every production module and script | `make types`, `pyproject.toml` | 2026-11-04 |
+| Fit complete planned arms with matching run and evaluation identities | `src/esme_pretrain/study/results.py`, `tests/test_study_results.py` | 2026-11-04 |
+| Apply the registered LR gate only to complete, finite, comparable evidence | `src/esme_pretrain/study/lr_gate.py`, `tests/test_study_evidence.py` | 2026-11-04 |
+| Use validated study rows for heldout predictions | `src/esme_pretrain/study/prediction.py`, `tests/test_study_evidence.py::test_heldout_requires_matching_evidence` | 2026-11-04 |
+| Keep run outputs, checkpoints, data, W&B state, and `.env*` out of git | `.gitignore` | 2026-10-24 |

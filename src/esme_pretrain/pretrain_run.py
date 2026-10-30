@@ -11,7 +11,6 @@ from pydantic import BaseModel
 from esme_pretrain.modeling.backbone import BackboneConfig, baseline_config
 from esme_pretrain.pretrain_config import (
     ArtifactsConfig,
-    DatasetConfig,
     DocumentSplitConfig,
     GpuProfile,
     MonitoringConfig,
@@ -23,8 +22,6 @@ from esme_pretrain.pretrain_config import (
     parse_run_config,
 )
 
-EXPECTED_DATASET_SOURCE = "HuggingFaceFW/fineweb-edu"
-EXPECTED_DATASET_REVISION = "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9"
 EXPECTED_TOKENIZER_VOCAB = 32_768
 EXPECTED_ARTIFACTS: tuple[str, ...] = (
     "config.json",
@@ -54,7 +51,6 @@ class AcceptedRun:
 
 
 PRETRAIN_PROFILES = {"pretrain_214m_b200": AcceptedRun()}
-ALLOWED_GPU_PROFILES = {"H100", "H100!", "H200", "B200"}
 
 
 @dataclass(frozen=True)
@@ -107,7 +103,6 @@ def validate_pretrain_config(config: PretrainRunConfig, config_path: Path) -> Pr
         raise ValueError(f"run_card must point to {profile.run_card}")
     if config.requires_approval is not True:
         raise ValueError("requires_approval must be true")
-    _validate_dataset(config.dataset)
     _validate_split(config.split)
     _validate_budgets(config.budgets, profile)
     _validate_model(config.model, profile)
@@ -118,35 +113,18 @@ def validate_pretrain_config(config: PretrainRunConfig, config_path: Path) -> Pr
     artifact_manifest = _validate_artifacts(config.artifacts, profile)
     _validate_abort_rules(config.abort_rules)
     training = config.optimizer.training
-    selected_profile = config.runtime.gpu_profiles[config.runtime.selected_gpu]
     tokens_per_step = (
         training.micro_batch_size * training.grad_accum_steps * config.model.context_length
     )
     train_steps = math.ceil(config.budgets.train_token_budget / tokens_per_step)
-    estimated_cost = _estimate_cost_usd(
-        train_tokens=config.budgets.train_token_budget,
-        projected_tokens_per_second=selected_profile.projected_tokens_per_second,
-        usd_per_hour=selected_profile.usd_per_hour,
-    )
-    if estimated_cost > config.runtime.max_cost_usd:
-        raise ValueError("estimated cost exceeds runtime.max_cost_usd")
     return PretrainLaunchConfig(
         config=config,
         config_path=config_path,
         artifact_manifest=artifact_manifest,
         train_steps=train_steps,
         tokens_per_step=tokens_per_step,
-        estimated_cost_usd=estimated_cost,
+        estimated_cost_usd=config.estimated_cost_usd(),
     )
-
-
-def _estimate_cost_usd(
-    *, train_tokens: int, projected_tokens_per_second: float, usd_per_hour: float
-) -> float:
-    if projected_tokens_per_second <= 0:
-        raise ValueError("projected_tokens_per_second must be positive")
-    seconds = train_tokens / projected_tokens_per_second
-    return seconds * usd_per_hour / 3600.0
 
 
 def _require_values(payload: BaseModel, expected: Mapping[str, object], label: str) -> None:
@@ -156,25 +134,6 @@ def _require_values(payload: BaseModel, expected: Mapping[str, object], label: s
                 f"{label}.{key}: got {getattr(payload, key)!r}, expected {value!r}. "
                 "Restore the accepted run card value."
             )
-
-
-def _validate_dataset(dataset: DatasetConfig) -> None:
-    expected = {
-        "name": "fineweb-edu",
-        "source": EXPECTED_DATASET_SOURCE,
-        "revision": EXPECTED_DATASET_REVISION,
-        "subset": "sample-10BT",
-        "split": "train",
-        "text_field": "text",
-        "id_field": "id",
-        "license": "odc-by",
-        "language": "en",
-        "streaming": True,
-    }
-    _require_values(dataset, expected, "dataset")
-    filters = dataset.filters
-    if filters.min_int_score != 3:
-        raise ValueError("dataset.filters.min_int_score must be 3")
 
 
 def _validate_split(split: DocumentSplitConfig) -> None:
@@ -264,45 +223,11 @@ def _validate_runtime(runtime: RuntimeConfig, profile: AcceptedRun) -> None:
     expected = {
         "provider": "modal",
         "precision": "bfloat16",
-        "allow_retries": False,
         "modal_volume": profile.modal_volume,
     }
     _require_values(runtime, expected, "runtime")
-    if runtime.runtime_spend_stop_usd != runtime.max_cost_usd:
-        raise ValueError("runtime.runtime_spend_stop_usd must equal runtime.max_cost_usd")
-    if float(runtime.max_cost_usd) <= 0:
-        raise ValueError("runtime.max_cost_usd must be positive")
-    if int(runtime.timeout_hours) <= 0:
-        raise ValueError("runtime.timeout_hours must be positive")
-    if int(runtime.timeout_hours) > 24:
-        raise ValueError("runtime.timeout_hours must not exceed Modal's 24h function maximum")
-    gpu_profiles = runtime.gpu_profiles
-    selected_gpu = runtime.selected_gpu
-    if selected_gpu not in gpu_profiles:
-        raise ValueError("runtime.selected_gpu must name a gpu_profiles entry")
-    if selected_gpu not in ALLOWED_GPU_PROFILES:
-        raise ValueError(f"runtime.selected_gpu must be one of {sorted(ALLOWED_GPU_PROFILES)}")
-    if profile.model_name == "214M" and set(gpu_profiles) != {"H100!", "H200", "B200"}:
+    if profile.model_name == "214M" and set(runtime.gpu_profiles) != {"H100!", "H200", "B200"}:
         raise ValueError("214M gpu_profiles must cover H100!, H200, and B200")
-    for name, gpu_profile in gpu_profiles.items():
-        if name not in ALLOWED_GPU_PROFILES:
-            raise ValueError(f"unsupported GPU profile: {name}")
-        _validate_gpu_profile(name, gpu_profile)
-
-
-def _validate_gpu_profile(name: str, gpu_profile: GpuProfile) -> None:
-    if gpu_profile.modal_gpu != name:
-        raise ValueError(f"runtime.gpu_profiles.{name}.modal_gpu must be {name}")
-    if float(gpu_profile.usd_per_hour) <= 0:
-        raise ValueError(f"runtime.gpu_profiles.{name}.usd_per_hour must be positive")
-    if int(gpu_profile.projected_tokens_per_second) <= 0:
-        raise ValueError(
-            f"runtime.gpu_profiles.{name}.projected_tokens_per_second must be positive"
-        )
-    if float(gpu_profile.expected_duration_hours) <= 0:
-        raise ValueError(f"runtime.gpu_profiles.{name}.expected_duration_hours must be positive")
-    if not gpu_profile.projection_source.strip():
-        raise ValueError(f"runtime.gpu_profiles.{name}.projection_source must be non-empty")
 
 
 def _validate_monitoring(monitoring: MonitoringConfig) -> None:

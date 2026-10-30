@@ -9,6 +9,7 @@ import pytest
 
 from esme_pretrain.launch import gpu_smoke, modal_pretrain_body, modal_tokenizer
 from esme_pretrain.launch.pretrain import LAUNCH_APPROVAL_FLAG, build_pretrain_dry_run
+from esme_pretrain.pretrain_config import parse_run_config
 from esme_pretrain.pretrain_run import EXPECTED_ARTIFACTS, load_pretrain_config
 
 CONFIG_214M_B200 = Path("configs/pretrain_214m_b200.json")
@@ -108,6 +109,7 @@ def test_pretrain_gpu_smoke_check_only_passes_under_cap(capsys) -> None:
 def test_pretrain_config_rejects_drift(tmp_path: Path) -> None:
     payload = json.loads(CONFIG_214M_B200.read_text(encoding="utf-8"))
     payload["runtime"]["max_cost_usd"] = 40
+    payload["runtime"]["runtime_spend_stop_usd"] = 40
     config_path = tmp_path / "bad.json"
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -406,8 +408,24 @@ def test_pretrain_config_rejects_unpinned_dataset_revision(tmp_path: Path) -> No
     config_path = tmp_path / "bad-dataset.json"
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="revision"):
+    with pytest.raises(ValueError, match="no data audit"):
         load_pretrain_config(config_path)
+
+
+@pytest.mark.parametrize(
+    ("key", "value", "error"),
+    [
+        ("max_cost_usd", 101, "absolute pretrain spend cap"),
+        ("runtime_spend_stop_usd", 90, "must equal max_cost_usd"),
+        ("allow_retries", True, "allow_retries must be false"),
+    ],
+)
+def test_run_card_schema_enforces_the_spend_cap(key: str, value: object, error: str) -> None:
+    payload = json.loads(CONFIG_214M_B200.read_text(encoding="utf-8"))
+    payload["runtime"][key] = value
+
+    with pytest.raises(ValueError, match=error):
+        parse_run_config(json.dumps(payload), CONFIG_214M_B200)
 
 
 def test_pretrain_config_rejects_model_drift(tmp_path: Path) -> None:

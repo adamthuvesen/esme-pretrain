@@ -76,7 +76,7 @@ def _launch_command(config_path: Path, runtime: RuntimeConfig) -> str:
 
 
 def _launch_safety_blockers(config: PretrainLaunchConfig) -> list[str]:
-    # Over-cost and over-timeout configs never reach this point: validate_pretrain_payload
+    # Over-cost and over-timeout configs never reach this point: the RuntimeConfig type
     # rejects them at load. The only condition that validates but is unsafe to launch is a
     # projected duration that would outlive the Modal function timeout.
     runtime = config.config.runtime

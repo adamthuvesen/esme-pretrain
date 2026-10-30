@@ -1,4 +1,7 @@
-"""JSON structure for pretrain run cards. Accepted run policy lives in pretrain_run."""
+"""Pretrain run card schema and the spend limits every run card obeys.
+
+The accepted run's exact values live in pretrain_run.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import fields
 from pathlib import Path
 from types import MappingProxyType
+from typing import Self
 
 from pydantic import (
     BaseModel,
@@ -14,10 +18,16 @@ from pydantic import (
     ValidationError,
     field_serializer,
     field_validator,
+    model_validator,
 )
 
 from esme_pretrain.data.corpus_config import DatasetConfig, DocumentSplitConfig
 from esme_pretrain.modeling.backbone import BackboneConfig
+
+# The absolute pretrain cap from docs/run-cards/pretrain-214m-b200.md (abort rules).
+PRETRAIN_SPEND_CAP_USD = 100.0
+MODAL_MAX_TIMEOUT_HOURS = 24
+MODAL_GPUS = frozenset({"H100", "H100!", "H200", "B200"})
 
 
 class RunSettings(BaseModel):
@@ -66,10 +76,10 @@ class OptimizerConfig(RunSettings):
 
 class GpuProfile(RunSettings):
     modal_gpu: str
-    usd_per_hour: float
-    projected_tokens_per_second: int
-    expected_duration_hours: float
-    projection_source: str
+    usd_per_hour: float = Field(gt=0)
+    projected_tokens_per_second: int = Field(gt=0)
+    expected_duration_hours: float = Field(gt=0)
+    projection_source: str = Field(pattern=r"\S")
     measured: bool
 
 
@@ -92,6 +102,31 @@ class RuntimeConfig(RunSettings):
     @field_serializer("gpu_profiles")
     def serialize_profiles(self, value: Mapping[str, GpuProfile]) -> dict[str, GpuProfile]:
         return dict(value)
+
+    @model_validator(mode="after")
+    def check_spend_and_hardware(self) -> Self:
+        if not 0 < self.max_cost_usd <= PRETRAIN_SPEND_CAP_USD:
+            raise ValueError(
+                f"max_cost_usd {self.max_cost_usd:g} must be in (0, {PRETRAIN_SPEND_CAP_USD:g}], "
+                "the absolute pretrain spend cap. A larger cap needs a new run card and approval"
+            )
+        if self.runtime_spend_stop_usd != self.max_cost_usd:
+            raise ValueError("runtime_spend_stop_usd must equal max_cost_usd")
+        if self.allow_retries:
+            raise ValueError("allow_retries must be false: a retry rents the GPU again")
+        if not 0 < self.timeout_hours <= MODAL_MAX_TIMEOUT_HOURS:
+            raise ValueError(
+                f"timeout_hours must be in 1..{MODAL_MAX_TIMEOUT_HOURS} (Modal maximum)"
+            )
+        unknown = sorted(set(self.gpu_profiles) - MODAL_GPUS)
+        if unknown:
+            raise ValueError(f"unsupported GPU profiles {unknown}; use {sorted(MODAL_GPUS)}")
+        if self.selected_gpu not in self.gpu_profiles:
+            raise ValueError("selected_gpu must name a gpu_profiles entry")
+        for name, profile in self.gpu_profiles.items():
+            if profile.modal_gpu != name:
+                raise ValueError(f"gpu_profiles.{name}.modal_gpu must be {name}")
+        return self
 
 
 class MonitoringConfig(RunSettings):
@@ -131,6 +166,21 @@ class PretrainRunConfig(RunSettings):
             raise ValueError("model must contain exactly the BackboneConfig fields")
         return value
 
+    @model_validator(mode="after")
+    def check_estimated_cost(self) -> Self:
+        estimated = self.estimated_cost_usd()
+        if estimated > self.runtime.max_cost_usd:
+            raise ValueError(
+                f"estimated cost ${estimated:.2f} exceeds runtime.max_cost_usd "
+                f"${self.runtime.max_cost_usd:g} on {self.runtime.selected_gpu}"
+            )
+        return self
+
+    def estimated_cost_usd(self) -> float:
+        profile = self.runtime.gpu_profiles[self.runtime.selected_gpu]
+        seconds = self.budgets.train_token_budget / profile.projected_tokens_per_second
+        return seconds * profile.usd_per_hour / 3600.0
+
 
 def parse_run_config(data: str, source: Path) -> PretrainRunConfig:
     try:
@@ -138,6 +188,7 @@ def parse_run_config(data: str, source: Path) -> PretrainRunConfig:
     except ValidationError as error:
         detail = error.errors(include_url=False)[0]
         field = ".".join(str(part) for part in detail["loc"]) or "JSON"
+        message = detail["msg"].removeprefix("Value error, ")
         raise ValueError(
-            f"invalid run config {source}: {field}: {detail['msg']}. Fix the run card JSON."
+            f"invalid run config {source}: {field}: {message}. Fix the run card JSON."
         ) from error

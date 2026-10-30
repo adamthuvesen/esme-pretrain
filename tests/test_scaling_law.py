@@ -49,6 +49,7 @@ def test_noiseless_fit_recovers_held_out_prediction_and_exponents(noiseless_fit)
     assert recovered == pytest.approx((TRUE_E, TRUE_A, TRUE_B), rel=1e-6)
 
 
+@pytest.mark.slow
 def test_bootstrap_interval_covers_true_value_under_small_noise() -> None:
     # A 90% interval misses 1 in 10 draws by design: noise seeds 0-9 cover 9 of 10
     # (seed 0 misses), so this pins seed 1 rather than claiming every seed covers.

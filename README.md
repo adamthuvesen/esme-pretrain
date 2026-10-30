@@ -127,7 +127,7 @@ conventions that matter when you compare runs.
 
 ## Quickstart
 
-Install the dev environment and the repo's git hooks:
+Install the dev environment:
 
 ```bash
 make install
@@ -143,6 +143,7 @@ make check
 Type errors identify stale config access. Import contracts name the domain that owns the code.
 New modules and scripts enter the type gate automatically.
 The CPU suite proves training, resume, fixed evaluation, export, and bundle loading.
+`make verify` runs the slow offline tests, such as the scaling-law bootstrap interval.
 
 Check the 214M training config without touching data or GPUs:
 
