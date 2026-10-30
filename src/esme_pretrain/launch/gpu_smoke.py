@@ -13,7 +13,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from esme_pretrain.launch.budget import LaunchBudget, project_cost
+from esme_pretrain.launch.budget import (
+    LaunchBudget,
+    approved_command,
+    project_cost,
+    require_approval,
+)
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
 from esme_pretrain.pretrain_config import PretrainRunConfig
@@ -168,8 +173,8 @@ def launch(argv: list[str] | None = None) -> int:
             )
         )
         return 0
-    if not args.approved:
-        print("pretrain gpu smoke refused: pass --approved to rent the GPU", file=sys.stderr)
+    command = approved_command("scripts/pretrain_gpu_smoke.py", argv)
+    if not require_approval(args.approved, run="pretrain gpu smoke", command=command):
         return 2
     if modal is None:
         print("pretrain gpu smoke failed: modal is not installed", file=sys.stderr)

@@ -24,7 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from esme_pretrain.launch.budget import LaunchBudget
+from esme_pretrain.launch.budget import LaunchBudget, approved_command, require_approval
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
 from esme_pretrain.pretrain_config import PretrainRunConfig
@@ -142,8 +142,8 @@ def launch(argv: list[str] | None = None) -> int:
     if args.check_only:
         print(json.dumps({"status": "check_ok", **plan}, indent=2, sort_keys=True))
         return 0
-    if not args.approved:
-        print("throughput bench refused: pass --approved to rent the GPU", file=sys.stderr)
+    command = approved_command("scripts/modal_throughput_bench.py", argv)
+    if not require_approval(args.approved, run="throughput bench", command=command):
         return 2
     if plan["after_dirty"]:
         print("throughput bench refused: commit the working tree first", file=sys.stderr)

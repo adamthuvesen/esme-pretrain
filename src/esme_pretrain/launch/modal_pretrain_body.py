@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from esme_pretrain.data.corpus_stream import document_text_stream
+from esme_pretrain.launch.budget import require_approval
 from esme_pretrain.launch.modal_artifacts import (
     local_git_commit,
     local_git_dirty,
@@ -121,16 +122,13 @@ def launch(
         print(_format_payload(payload, json_output=args.json))
         return 0
 
-    if not args.approved:
-        print(
-            f"pretrain launch refused: pass {LAUNCH_APPROVAL_FLAG} after chat approval",
-            file=sys.stderr,
-        )
+    dry_run = build_pretrain_dry_run(config)
+    command = dry_run["launch_command"]
+    if not require_approval(args.approved, run="pretrain launch", command=command):
         return 2
     if run_pretrain_launch is None:
         print("pretrain launch failed: modal is not installed in this environment", file=sys.stderr)
         return 2
-    dry_run = build_pretrain_dry_run(config)
     if dry_run["launch_blockers"]:
         print(
             "pretrain launch refused: " + "; ".join(dry_run["launch_blockers"]),

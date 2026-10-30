@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from esme_pretrain.launch.budget import LAUNCH_APPROVAL_FLAG
 from esme_pretrain.pretrain_config import RuntimeConfig
 from esme_pretrain.pretrain_run import PretrainLaunchConfig
 
-LAUNCH_APPROVAL_FLAG = "--approved"
 MODAL_CLIENT_VERSION = "1.5.0"
 IMAGE_PACKAGE_PINS: dict[str, str] = {
     "torch": "2.12.1",

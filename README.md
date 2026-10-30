@@ -133,23 +133,8 @@ Install the dev environment:
 make install
 ```
 
-Run the checks:
-
-```bash
-make check
-```
-
-`make check` runs locked Ruff, all-source ty, import-linter, and offline CPU tests locally and in CI.
-Type errors identify stale config access. Import contracts name the domain that owns the code.
-New modules and scripts enter the type gate automatically.
-The CPU suite proves training, resume, fixed evaluation, export, and bundle loading.
-`make verify` runs the slow offline tests, such as the scaling-law bootstrap interval.
-
-Check the 214M training config without touching data or GPUs:
-
-```bash
-uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
-```
+The check, verify, and no-spend dry-run commands live in the Gates section of
+[`AGENTS.md`](AGENTS.md).
 
 ## Commands
 

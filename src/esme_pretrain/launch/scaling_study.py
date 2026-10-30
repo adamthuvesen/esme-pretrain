@@ -29,7 +29,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 from esme_pretrain.data.token_shards import load_token_shard_manifest
-from esme_pretrain.launch.budget import LaunchBudget, check_spend_cap
+from esme_pretrain.launch.budget import (
+    LaunchBudget,
+    approved_command,
+    check_spend_cap,
+    require_approval,
+)
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
 from esme_pretrain.pretrain_config import PretrainRunConfig
@@ -254,8 +259,8 @@ def launch(argv: list[str] | None = None) -> int:
     if args.check_only:
         print(json.dumps({"status": "check_ok", **report}, indent=2, sort_keys=True))
         return 0
-    if not args.approved:
-        print("scaling study refused: pass --approved to rent GPUs", file=sys.stderr)
+    command = approved_command("scripts/modal_scaling_study.py", argv)
+    if not require_approval(args.approved, run="scaling study", command=command):
         return 2
     if with_heldout and not _committed_in_head(args.prediction):
         print(

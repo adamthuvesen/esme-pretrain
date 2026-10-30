@@ -3,7 +3,31 @@
 from __future__ import annotations
 
 import math
+import shlex
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
+
+LAUNCH_APPROVAL_FLAG = "--approved"
+
+
+def approved_command(script: str, argv: Sequence[str] | None) -> str:
+    args = sys.argv[1:] if argv is None else argv
+    kept = [arg for arg in args if arg not in {"--check-only", LAUNCH_APPROVAL_FLAG}]
+    return shlex.join(["uv", "run", "python", script, *kept, LAUNCH_APPROVAL_FLAG])
+
+
+def require_approval(approved: bool, *, run: str, command: str) -> bool:
+    """Gate every paid Modal launch. Call it before the first Modal call."""
+    if approved:
+        return True
+    print(
+        f"{run} refused: this run rents Modal GPUs and spends money. Stop and ask Adam "
+        f"to approve this exact command in chat. Do not add {LAUNCH_APPROVAL_FLAG} yourself.\n"
+        f"  {command}",
+        file=sys.stderr,
+    )
+    return False
 
 
 def reserved_cost_usd(*, timeout_seconds: float, usd_per_hour: float) -> float:
