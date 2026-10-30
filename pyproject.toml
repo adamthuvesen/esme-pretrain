@@ -54,7 +54,7 @@ src = ["src", "tests"]
 exclude = ["archive"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF", "PGH003"]
 ignore = ["E501"]
 
 [tool.ruff.format]
@@ -62,8 +62,10 @@ quote-style = "double"
 
 [tool.basedpyright]
 typeCheckingMode = "strict"
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
 pythonVersion = "3.14"
-include = ["src", "scripts", "tests", ".agents/skills/verify-esme-pretrain/verify"]
+include = ["src", "scripts", "tests"]
 venvPath = "."
 venv = ".venv"
 reportUnknownMemberType = false

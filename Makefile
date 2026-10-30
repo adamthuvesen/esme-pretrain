@@ -12,8 +12,9 @@ lint:  ## Lint and format-check (no changes)
 	uv run --locked ruff check .
 	uv run --locked ruff format --check .
 
-types:  ## Strict type-check src, scripts, and tests
+types:  ## Strict type-check src, scripts, tests, and the verify entry script
 	uv run --locked basedpyright
+	uv run --locked basedpyright --project .agents/skills/verify-esme-pretrain
 
 imports:  ## Check domain dependency contracts
 	uv run --locked lint-imports

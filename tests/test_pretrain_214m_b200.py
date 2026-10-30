@@ -368,21 +368,21 @@ def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
 
     monkeypatch.setattr(modal_tokenizer, "document_text_stream", fake_document_text_stream)
 
-    assert list(modal_tokenizer._bounded_texts_for_tokenizer(config)) == ["abcd"]  # pyright: ignore[reportPrivateUsage, reportArgumentType]
+    assert list(modal_tokenizer._bounded_texts_for_tokenizer(config)) == ["abcd"]  # pyright: ignore[reportArgumentType]
     assert captured == {"config": config, "split": "train"}
 
 
 def test_wandb_resume_run_id_prefers_persisted_id(tmp_path: Path) -> None:
     (tmp_path / "wandb-run-id.txt").write_text("x99drn15\n", encoding="utf-8")
 
-    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"  # pyright: ignore[reportPrivateUsage]
+    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"
 
 
 def test_wandb_resume_run_id_falls_back_to_existing_wandb_run_dir(tmp_path: Path) -> None:
     run_dir = tmp_path / "wandb" / "run-20260625_220548-x99drn15"
     run_dir.mkdir(parents=True)
 
-    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"  # pyright: ignore[reportPrivateUsage]
+    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"
 
 
 def test_modal_pretrain_refuses_without_approval(capsys) -> None:

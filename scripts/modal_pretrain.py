@@ -24,7 +24,7 @@ try:
 except ImportError:  # pragma: no cover - Modal is supplied by the launch command.
     modal = None
 
-run_pretrain_launch = None  # pyright: ignore[reportRedeclaration, reportAssignmentType]
+run_pretrain_launch = None  # pyright: ignore[reportAssignmentType]
 
 if modal is not None:  # pragma: no cover - exercised by Modal, not local unit tests.
     image = build_pretrain_modal_image(

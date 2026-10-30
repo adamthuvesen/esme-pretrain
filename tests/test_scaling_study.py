@@ -421,10 +421,10 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
 
 def test_committed_in_head_matches_the_tracked_blob(tmp_path: Path) -> None:
     tracked = scaling_study.REPO_ROOT / ".python-version"
-    assert scaling_study._committed_in_head(tracked)  # pyright: ignore[reportPrivateUsage]
+    assert scaling_study._committed_in_head(tracked)
     copy = tmp_path / ".python-version"
     copy.write_bytes(tracked.read_bytes())
-    assert not scaling_study._committed_in_head(copy)  # pyright: ignore[reportPrivateUsage]
+    assert not scaling_study._committed_in_head(copy)
 
 
 def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
