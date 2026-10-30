@@ -54,8 +54,53 @@ src = ["src", "tests"]
 exclude = ["archive"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF", "PGH003"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF", "PGH003", "PGH004", "TID251"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/esme_pretrain/launch/gpu_smoke.py" = ["TID251"]
+"src/esme_pretrain/launch/modal_artifacts.py" = ["TID251"]
+"src/esme_pretrain/launch/scaling_study.py" = ["TID251"]
+"src/esme_pretrain/launch/throughput_bench.py" = ["TID251"]
+"scripts/modal_pretrain.py" = ["TID251"]
+"src/esme_pretrain/training/metrics.py" = ["TID251"]
+"tests/test_repo_rules.py" = ["TID251"]
+"tests/test_scaling_study.py" = ["TID251"]
+"tests/test_strict_mode.py" = ["TID251"]
+".agents/skills/verify-esme-pretrain/verify" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"subprocess".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"pty".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"asyncio.create_subprocess_exec".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"asyncio.create_subprocess_shell".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.system".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.popen".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.posix_spawn".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.posix_spawnp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execl".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execle".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execlp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execlpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execv".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execve".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execvp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.execvpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnl".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnle".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnlp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnlpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnv".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnve".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnvp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"os.spawnvpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"socket".msg = "Network clients have no owner module in this repo."
+"http.client".msg = "Network clients have no owner module in this repo."
+"urllib.request".msg = "Network clients have no owner module in this repo."
+"requests".msg = "Network clients have no owner module in this repo."
+"httpx".msg = "Network clients have no owner module in this repo."
+"modal".msg = "Modal spends money: only the gated launchers in `launch/` and `scripts/modal_pretrain.py` import it."
+"wandb".msg = "W&B writes belong to `training/metrics.py`."
 
 [tool.ruff.format]
 quote-style = "double"

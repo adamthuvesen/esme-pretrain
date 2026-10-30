@@ -64,4 +64,5 @@ Prove changes with `make verify` (`verify-esme-pretrain` skill at `.agents/skill
 | Use validated study rows for heldout predictions | `src/esme_pretrain/study/prediction.py`, `tests/test_study_evidence.py::test_heldout_requires_matching_evidence` | 2026-11-04 |
 | Keep run outputs, checkpoints, data, W&B state, and `.env*` out of git | `.gitignore`, `tests/test_repo_rules.py::test_no_run_outputs_or_data_are_tracked` | 2026-10-24 |
 | The verify drives must observe FAIL against a wrong expectation | `.agents/skills/verify-esme-pretrain/verify::control`, `make verify` | 2026-11-06 |
+| Process calls, network clients, Modal, and W&B stay in their named owner files | `make lint`, `pyproject.toml::[tool.ruff.lint.flake8-tidy-imports.banned-api]`, `pyproject.toml::[tool.ruff.lint.per-file-ignores]` | 2026-11-07 |
 | No file downgrades strict type checking with a `# pyright:` mode comment | `tests/test_strict_mode.py::test_no_file_downgrades_type_checking_mode` | 2026-11-07 |

@@ -16,21 +16,25 @@ MAX_TRACKED_BYTES = 512 * 1024
 SIZE_EXEMPT = {"uv.lock"}
 
 
-def test_no_run_outputs_or_data_are_tracked() -> None:
-    tracked = subprocess.run(
-        ["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, check=True
-    ).stdout.split("\0")
-    bad = [
+def _artifacts(names: list[str], root: Path = ROOT) -> list[str]:
+    return [
         name
-        for name in filter(None, tracked)
-        if (ROOT / name).exists()
+        for name in filter(None, names)
+        if (root / name).exists()
         and (
             name.startswith(ARTIFACT_DIRS)
             or Path(name).name.startswith(".env")
             or Path(name).suffix in ARTIFACT_SUFFIXES
-            or (name not in SIZE_EXEMPT and (ROOT / name).stat().st_size > MAX_TRACKED_BYTES)
+            or (name not in SIZE_EXEMPT and (root / name).stat().st_size > MAX_TRACKED_BYTES)
         )
     ]
+
+
+def test_no_run_outputs_or_data_are_tracked() -> None:
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, text=True, check=True
+    ).stdout.split("\0")
+    bad = _artifacts(tracked)
     assert not bad, (
         f"run outputs, data, secrets, or files over {MAX_TRACKED_BYTES} bytes are tracked: "
         f"{bad}. Keep them on the Modal volume or under gitignored runs/, then `git rm --cached`."
@@ -91,3 +95,24 @@ def test_every_audited_corpus_recipe_cites_an_existing_run_card() -> None:
 
     assert AUDITED_CORPUS_RECIPES
     assert not missing, f"AUDITED_CORPUS_RECIPES cites missing run cards {missing}"
+
+
+def test_the_checks_find_known_violations(tmp_path: Path) -> None:
+    names = ["runs/x/metrics.txt", ".env.local", "shard.parquet", "big.md", "uv.lock", "ok.md"]
+    for name in names:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_bytes(b"x" * (MAX_TRACKED_BYTES + 1 if "big" in name else 1))
+    (tmp_path / "uv.lock").write_bytes(b"x" * (MAX_TRACKED_BYTES + 1))
+    assert _artifacts(names, tmp_path) == names[:4]
+    table = (
+        "\n## Enforced Rules\n\n| Rule | Enforced by |\n| --- | --- |\n"
+        "| ok | `make check`, `tests/test_repo_rules.py::test_enforced_rules_cite_real_checks` |\n"
+        "| bare | `src/esme_pretrain/data/corpus_config.py` |\n"
+        "| target | `make check-foo` |\n"
+        "| def | `tests/test_repo_rules.py::no_such_test` |\n"
+    )
+    assert _table_problems(table) == [
+        "'bare' cites no `path::name` check or make target",
+        "'target' cites 'check-foo', which Makefile does not define",
+        "'def' cites 'no_such_test', which tests/test_repo_rules.py does not define",
+    ]
