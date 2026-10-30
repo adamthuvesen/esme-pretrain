@@ -4,6 +4,7 @@ import math
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -39,8 +40,8 @@ class CharEvalModel:
         self.name = name
         config = _small_config()
         self.context_length = config.context_length
-        self.eos_id = 0
-        self.provenance = {"kind": "fixture"}
+        self.eos_id: int | None = 0
+        self.provenance: dict[str, Any] = {"kind": "fixture"}
         torch.manual_seed(7)
         self._module = DenseBackbone(config).eval()
         self._vocab_size = config.vocab_size
@@ -246,7 +247,7 @@ def test_load_slice_texts_hf_dataset_falls_back_to_split_file(monkeypatch) -> No
         text_field="text",
         document_budget=1,
     )
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
     def fake_load_dataset(*args, **kwargs):
         calls.append({"args": args, "kwargs": kwargs})

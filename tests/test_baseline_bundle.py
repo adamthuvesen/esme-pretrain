@@ -87,7 +87,7 @@ def test_load_bundle_rejects_missing_files(tmp_path: Path, monkeypatch) -> None:
     bundle_dir, _, _ = _export_small_bundle(tmp_path, monkeypatch)
     (bundle_dir / "tokenizer.json").unlink()
 
-    with pytest.raises(ValueError, match="missing required files.*tokenizer.json"):
+    with pytest.raises(ValueError, match=r"missing required files.*tokenizer.json"):
         load_bundle(bundle_dir)
 
 
@@ -101,7 +101,7 @@ def test_load_bundle_rejects_tampered_weights(tmp_path: Path, monkeypatch) -> No
     with (bundle_dir / "weights.pt").open("ab") as handle:
         handle.write(b"tampered")
 
-    with pytest.raises(ValueError, match="hash mismatch for weights.pt"):
+    with pytest.raises(ValueError, match=r"hash mismatch for weights.pt"):
         load_bundle(bundle_dir)
 
 
@@ -116,7 +116,7 @@ def test_load_bundle_rejects_config_drift(tmp_path: Path, monkeypatch) -> None:
     manifest["files"]["config"]["sha256"] = file_sha256(config_path)
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="manifest model_config does not match config.json"):
+    with pytest.raises(ValueError, match=r"manifest model_config does not match config.json"):
         load_bundle(bundle_dir)
 
 

@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from esme_pretrain.cli.subparsers import Subparsers
 from esme_pretrain.study.plan import load_study_plan
 from esme_pretrain.study.prediction import (
     BOOTSTRAP_INTERVAL,
@@ -16,7 +17,7 @@ from esme_pretrain.study.results import load_loss_points, load_study_fit_input
 from esme_pretrain.study.scaling_law import bootstrap_prediction
 
 
-def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
+def add_study_parsers(subparsers: Subparsers) -> None:
     scaling_fit = subparsers.add_parser(
         "scaling-fit",
         help="Fit the pre-registered scaling law and bootstrap one held-out prediction.",

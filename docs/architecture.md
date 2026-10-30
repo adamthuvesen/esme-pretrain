@@ -110,7 +110,7 @@ The CLI parses arguments and writes output. Launch code owns Git checks and Moda
 Each launcher binds selected work, hardware, timeout, and cost into a typed plan before execution.
 Dry runs and paid execution consume the same plan. `launch/budget.py` owns per-launch cost bounds.
 `artifacts/hashes.py` and `data/token_bytes.py` provide shared hashing and byte accounting.
-`make check` type-checks every module under `src` and `scripts`, including new files.
+`make check` type-checks every module under `src`, `scripts`, and `tests` with basedpyright strict, including new files.
 Five import contracts protect study, launch, data/artifacts, modeling/torch, and training ownership.
 Modeling stays independent. Data and training cannot depend on operation policy.
 

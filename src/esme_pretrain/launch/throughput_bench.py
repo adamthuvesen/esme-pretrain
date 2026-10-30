@@ -126,7 +126,7 @@ def launch(argv: list[str] | None = None) -> int:
         print(f"throughput bench refused: {error}", file=sys.stderr)
         return 2
 
-    plan = {
+    plan: dict[str, Any] = {
         "gpu": BENCH_GPU,
         "before_commit": before_commit,
         "after_commit": local_git_commit(REPO_ROOT),

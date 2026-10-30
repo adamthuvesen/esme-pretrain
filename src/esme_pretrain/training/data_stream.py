@@ -160,7 +160,7 @@ def prefetch_device_batches(
                 if pin_memory:
                     cpu_batch = cpu_batch.pin_memory()
                 batch_queue.put(cpu_batch)
-        except BaseException as error:  # noqa: BLE001 - surfaced to the consumer below
+        except BaseException as error:  # surfaced to the consumer below
             error_box.append(error)
         finally:
             batch_queue.put(None)

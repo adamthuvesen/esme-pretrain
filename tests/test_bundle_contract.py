@@ -216,7 +216,7 @@ def test_load_bundle_rejects_future_weights_format_version(contract_bundle) -> N
     manifest["files"]["weights"]["sha256"] = file_sha256(weights_path)
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="unsupported weights.pt format_version"):
+    with pytest.raises(ValueError, match=r"unsupported weights.pt format_version"):
         load_bundle(bundle_dir)
 
 
@@ -225,7 +225,7 @@ def test_load_bundle_rejects_tampered_tokenizer(contract_bundle) -> None:
     with (bundle_dir / "tokenizer.json").open("a", encoding="utf-8") as handle:
         handle.write(" ")
 
-    with pytest.raises(ValueError, match="hash mismatch for tokenizer.json"):
+    with pytest.raises(ValueError, match=r"hash mismatch for tokenizer.json"):
         load_bundle(bundle_dir)
 
 

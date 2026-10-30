@@ -33,7 +33,9 @@ def _modal_call_lines(fn: ast.FunctionDef) -> list[int]:
 
 def _approval_gate_line(fn: ast.FunctionDef) -> int | None:
     for node in ast.walk(fn):
-        test = node.test if isinstance(node, ast.If) else None
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
         if (
             isinstance(test, ast.UnaryOp)
             and isinstance(test.op, ast.Not)

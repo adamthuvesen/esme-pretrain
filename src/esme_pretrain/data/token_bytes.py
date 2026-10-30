@@ -60,7 +60,7 @@ def partitioned_byte_counts(text: str, offsets: Sequence[tuple[int, int]]) -> li
         boundaries.append(max(start, boundaries[-1]))
     boundaries.append(len(text))
     counts = []
-    for begin, end in zip(boundaries[:-1], boundaries[1:], strict=True):
+    for begin, end in itertools.pairwise(boundaries):
         counts.append(len(text[begin:end].encode("utf-8")))
     return counts
 

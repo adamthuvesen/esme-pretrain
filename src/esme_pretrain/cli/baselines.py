@@ -8,9 +8,10 @@ from pathlib import Path
 from esme_pretrain.baselines.config import load_baseline_eval_config
 from esme_pretrain.baselines.report import build_comparison
 from esme_pretrain.baselines.run import run_baseline_eval, run_gate
+from esme_pretrain.cli.subparsers import Subparsers
 
 
-def add_baseline_parsers(subparsers: argparse._SubParsersAction) -> None:
+def add_baseline_parsers(subparsers: Subparsers) -> None:
     gate = subparsers.add_parser(
         "baseline-gate",
         help="Reproduce the gate model's published downstream numbers before any Esme eval.",

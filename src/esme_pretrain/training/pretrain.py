@@ -379,7 +379,7 @@ def run_pretrain(
         try:
             compute_loss = torch.compile(compute_loss)
             compiled = True
-        except Exception as error:  # noqa: BLE001 - compile is best-effort headroom
+        except Exception as error:  # compile is best-effort headroom
             notes.append(f"torch.compile unavailable, ran eager: {error}")
 
     fused = config.use_fused_optimizer and is_cuda
@@ -444,7 +444,7 @@ def run_pretrain(
         # The step's one host read: loss, grad norm, and loss components together, so a
         # non-finite step is refused before the optimizer applies it.
         names = list(step_components)
-        values = torch.stack(
+        values: list[float] = torch.stack(
             [grad_norm.float(), *(step_components[name].float() for name in names)]
         ).tolist()
         grad_norm_last = values[0]

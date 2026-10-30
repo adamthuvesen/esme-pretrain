@@ -148,7 +148,7 @@ def load_pretrain_checkpoint(
     # are not plain tensors. This loads only our own checkpoints (local, trusted).
     try:
         payload = torch.load(path, map_location=map_location, weights_only=False)
-    except Exception as error:  # noqa: BLE001 - normalize torch/pickle load failures.
+    except Exception as error:  # normalize torch/pickle load failures.
         raise ValueError(f"checkpoint could not be loaded: {path}") from error
     if not isinstance(payload, Mapping):
         raise ValueError(f"checkpoint payload must be a mapping: {path}")

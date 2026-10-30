@@ -266,7 +266,7 @@ class _ShardWriter:
         shard_file.flush()
         os.fsync(shard_file.fileno())
         shard_file.close()
-        os.replace(tmp_path, final_path)
+        tmp_path.replace(final_path)
         self._shards.append(
             {
                 "path": final_path.name,
@@ -280,4 +280,4 @@ class _ShardWriter:
 def _write_atomic_text(path: Path, text: str) -> None:
     tmp_path = path.with_name(f"{path.name}.tmp")
     tmp_path.write_text(text, encoding="utf-8")
-    os.replace(tmp_path, path)
+    tmp_path.replace(path)

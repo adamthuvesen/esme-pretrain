@@ -12,8 +12,8 @@ lint:  ## Lint and format-check (no changes)
 	uv run --locked ruff check .
 	uv run --locked ruff format --check .
 
-types:  ## Type-check all production modules and scripts
-	uv run --locked ty check
+types:  ## Strict type-check src, scripts, and tests
+	uv run --locked basedpyright
 
 imports:  ## Check domain dependency contracts
 	uv run --locked lint-imports

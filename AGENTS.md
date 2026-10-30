@@ -38,7 +38,7 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Gates
 
 ```bash
-make check    # Ruff, all-source ty, import-linter, fast offline CPU tests; first CI job
+make check    # Ruff, strict basedpyright, import-linter, fast offline CPU tests; first CI job
 make verify   # slow offline tests (statistical fits); second CI job
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```
@@ -57,7 +57,7 @@ Prove changes with `make drive` (`verify-esme-pretrain` skill at `.agents/skills
 | Study owns its protocol without CLI, launch, or post-run imports | `make imports`, `pyproject.toml::Study owns its protocol without CLI, launch, or post-run dependencies` | 2026-11-04 |
 | Launch never imports CLI policy | `make imports`, `pyproject.toml::Launch must not depend on CLI policy` | 2026-11-04 |
 | Keep modeling independent, and keep data and training below operation policy | `make imports`, `pyproject.toml::Modeling and torch are independent of data and operations`, `pyproject.toml::Artifact and data domains do not depend on operations`, `pyproject.toml::Training does not depend on operation policy` | 2026-11-04 |
-| Type-check every production module and script | `make types`, `pyproject.toml::[tool.ty.src]` | 2026-11-04 |
+| Type-check every production module, script, and test in strict mode | `make types`, `pyproject.toml::[tool.basedpyright]` | 2026-11-04 |
 | Fit complete planned arms with matching run and evaluation identities | `src/esme_pretrain/study/results.py`, `tests/test_study_results.py::test_partial_rows_cannot_declare_themselves_complete`, `tests/test_study_results.py::test_fit_refuses_incomparable_evaluation_identity` | 2026-11-04 |
 | Apply the registered LR gate only to complete, finite, comparable evidence | `src/esme_pretrain/study/lr_gate.py`, `tests/test_study_evidence.py::test_lr_gate_rejects_invalid_evidence` | 2026-11-04 |
 | Use validated study rows for heldout predictions | `src/esme_pretrain/study/prediction.py`, `tests/test_study_evidence.py::test_heldout_requires_matching_evidence` | 2026-11-04 |

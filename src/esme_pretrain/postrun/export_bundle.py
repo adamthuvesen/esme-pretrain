@@ -65,7 +65,7 @@ def export_checkpoint(config: ExportConfig) -> dict[str, Any]:
     tokenizer_out = config.output_dir / "tokenizer.json"
     shutil.copyfile(config.tokenizer_path, tokenizer_out)
 
-    manifest = {
+    manifest: dict[str, Any] = {
         "schema_version": BUNDLE_SCHEMA_VERSION,
         "format": CANONICAL_BUNDLE_FORMAT,
         "target": LLM_INFER_TARGET,
@@ -126,7 +126,7 @@ def _validate_export_tokenizer(tokenizer_path: Path, vocab_size: int) -> None:
 
     try:
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
-    except Exception as error:  # noqa: BLE001 - tokenizers raises several parse errors.
+    except Exception as error:  # tokenizers raises several parse errors.
         raise ValueError(f"tokenizer is not a valid tokenizers JSON: {tokenizer_path}") from error
     if tokenizer.get_vocab_size() != vocab_size:
         raise ValueError(

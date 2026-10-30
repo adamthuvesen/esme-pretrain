@@ -117,7 +117,7 @@ class BackboneConfig:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BackboneConfig:
         payload = _drop_removed_disabled_keys(payload)
-        fields = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
+        fields = set(cls.__dataclass_fields__)  # type: ignore[attr-defined]
         unknown = set(payload) - fields
         if unknown:
             raise ValueError(f"unknown backbone config keys: {sorted(unknown)}")

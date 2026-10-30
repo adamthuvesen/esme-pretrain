@@ -19,13 +19,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "basedpyright==1.40.2",
   "import-linter>=2.15",
   "modal==1.5.0",
   "plotly>=6.1",
   "pytest>=8.2",
   "pytest-xdist>=3.8",
-  "ruff>=0.5",
-  "ty>=0.0.97",
+  "ruff==0.17.4",
   "wandb>=0.19",
 ]
 baselines = [
@@ -54,13 +54,26 @@ src = ["src", "tests"]
 exclude = ["archive"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF"]
 
 [tool.ruff.format]
 quote-style = "double"
 
-[tool.ty.src]
-include = ["src", "scripts"]
+[tool.basedpyright]
+typeCheckingMode = "strict"
+pythonVersion = "3.14"
+include = ["src", "scripts", "tests", ".agents/skills/verify-esme-pretrain/verify"]
+venvPath = "."
+venv = ".venv"
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownLambdaType = false
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportMissingParameterType = false
 
 [tool.importlinter]
 root_package = "esme_pretrain"

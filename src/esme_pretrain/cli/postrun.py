@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from esme_pretrain.cli.subparsers import Subparsers
 from esme_pretrain.postrun.acceptance_report import (
     BaseAcceptanceReportConfig,
     build_base_acceptance_report,
@@ -14,7 +15,7 @@ from esme_pretrain.postrun.export_bundle import ExportConfig, export_checkpoint
 from esme_pretrain.postrun.sample_checkpoint import SampleCheckpointConfig, sample_checkpoint
 
 
-def add_postrun_parsers(subparsers: argparse._SubParsersAction) -> None:
+def add_postrun_parsers(subparsers: Subparsers) -> None:
     eval_checkpoints = subparsers.add_parser(
         "eval-checkpoints",
         help="Evaluate checkpoints on one fixed deterministic validation slice.",

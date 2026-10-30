@@ -4,6 +4,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -121,7 +122,7 @@ def test_pretrain_config_rejects_drift(tmp_path: Path) -> None:
         raise AssertionError("config drift was accepted")
 
 
-def _fake_tokenizers_namespace(captured: dict[str, object]):
+def _fake_tokenizers_namespace(captured: dict[str, Any]):
     """Minimal `tokenizers` stand-in with digit-aware pre-tokenization.
 
     ``Digits``/``ByteLevel``/``Sequence`` implement enough of ``pre_tokenize_str``
@@ -154,7 +155,7 @@ def _fake_tokenizers_namespace(captured: dict[str, object]):
             return pieces
 
     class FakeSequence:
-        def __init__(self, members: list[object]) -> None:
+        def __init__(self, members: list[Any]) -> None:
             self.members = members
 
         def pre_tokenize_str(self, text: str) -> list[tuple[str, tuple[int, int]]]:
@@ -181,7 +182,7 @@ def _fake_tokenizers_namespace(captured: dict[str, object]):
     class FakeTokenizer:
         def __init__(self, model: object) -> None:
             self.model = model
-            self.pre_tokenizer = None
+            self.pre_tokenizer: Any = None
             self.decoder = None
             self._texts: list[str] = []
 
@@ -197,7 +198,7 @@ def _fake_tokenizers_namespace(captured: dict[str, object]):
             self._texts.append(text)
             # Encode the text index in the first id so decode is unambiguous; the
             # remaining ids carry the piece count.
-            ids = [index] + list(range(len(pieces)))
+            ids = [index, *list(range(len(pieces)))]
             return SimpleNamespace(ids=ids, _pieces=pieces)
 
         def decode(self, ids: list[int]) -> str:
@@ -239,7 +240,7 @@ def test_split_digits_pretokenizer_splits_multi_digit_numbers(tmp_path: Path) ->
     config = load_pretrain_config(CONFIG_214M_B200)
     assert config.config.tokenizer.split_digits is True
 
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
     _train_with_fake_tokenizers(config, tmp_path, captured)
 
     pre_tokenizer = captured["pre_tokenizer"]
@@ -356,7 +357,7 @@ def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
     config = SimpleNamespace(
         config=SimpleNamespace(budgets=SimpleNamespace(tokenizer_training_token_budget=2))
     )
-    captured: dict[str, object] = {}
+    captured: dict[str, Any] = {}
 
     def fake_document_text_stream(stream_config, *, split: str):
         captured["config"] = stream_config
@@ -367,21 +368,21 @@ def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
 
     monkeypatch.setattr(modal_tokenizer, "document_text_stream", fake_document_text_stream)
 
-    assert list(modal_tokenizer._bounded_texts_for_tokenizer(config)) == ["abcd"]
+    assert list(modal_tokenizer._bounded_texts_for_tokenizer(config)) == ["abcd"]  # pyright: ignore[reportPrivateUsage, reportArgumentType]
     assert captured == {"config": config, "split": "train"}
 
 
 def test_wandb_resume_run_id_prefers_persisted_id(tmp_path: Path) -> None:
     (tmp_path / "wandb-run-id.txt").write_text("x99drn15\n", encoding="utf-8")
 
-    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"
+    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"  # pyright: ignore[reportPrivateUsage]
 
 
 def test_wandb_resume_run_id_falls_back_to_existing_wandb_run_dir(tmp_path: Path) -> None:
     run_dir = tmp_path / "wandb" / "run-20260625_220548-x99drn15"
     run_dir.mkdir(parents=True)
 
-    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"
+    assert modal_pretrain_body._wandb_resume_run_id(tmp_path) == "x99drn15"  # pyright: ignore[reportPrivateUsage]
 
 
 def test_modal_pretrain_refuses_without_approval(capsys) -> None:

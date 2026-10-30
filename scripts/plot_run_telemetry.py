@@ -29,7 +29,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import plotly.graph_objects as go
+import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 
 # Style contract: match grpo-decomp/results/fig-gsm8k-decomposition.svg.
 FONT_FAMILY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"

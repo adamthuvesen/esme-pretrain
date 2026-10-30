@@ -6,6 +6,7 @@ import json
 import math
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -34,8 +35,9 @@ def test_real_study_plan_branches_fork_inside_the_main_runs_peak_phase() -> None
     warmup = int(plan.optimizer.warmup_steps)
     for arm in plan.arms_for("study"):
         main, *branches = arm.runs
-        assert main.checkpoint_steps == tuple(sorted(branch.fork_step for branch in branches))
+        assert main.checkpoint_steps == tuple(sorted(branch.fork_step for branch in branches))  # pyright: ignore[reportArgumentType]
         for branch in branches:
+            assert branch.fork_step is not None
             assert warmup <= branch.fork_step < branch.max_steps <= main.max_steps
     by_arm = {arm.arm: arm for arm in plan.arms}
     # The instrument check compares runs that end on the same step.
@@ -69,7 +71,7 @@ def _tiny_study(tmp_path: Path, *, added_arm: bool = False):
     tokenizer_sha256 = hashlib.sha256(tokenizer.read_bytes()).hexdigest()
 
     class Tokenizer:
-        def encode_batch(self, texts):
+        def encode_batch(self, texts: list[str]) -> list[Any]:
             return [type("Encoding", (), {"ids": [int(t) for t in text.split()]}) for text in texts]
 
     generator = torch.Generator().manual_seed(0)
@@ -152,7 +154,7 @@ def _tiny_study(tmp_path: Path, *, added_arm: bool = False):
 
 
 def test_study_arm_trains_main_and_branch_and_writes_scored_rows(tmp_path: Path) -> None:
-    plan, shard_dir, tokenizer, tokenizer_sha256 = _tiny_study(tmp_path)
+    plan, shard_dir, _tokenizer, _tokenizer_sha256 = _tiny_study(tmp_path)
     arm = plan.arms_for("smoke")[0]
     validation = study_validation_batches(
         plan,
@@ -204,7 +206,7 @@ def test_lr_gate_refuses_the_lr_that_failed_it() -> None:
     # The recorded full sweep rejects the former L6 learning rate under the same stop rule.
     plan = load_study_plan(CONFIG)
     failed = plan.arms_for("lr-gate", ("lr-6e-4",))
-    with pytest.raises(ValueError, match="LR 0.0006 is 0.139 nats worse"):
+    with pytest.raises(ValueError, match=r"LR 0.0006 is 0.139 nats worse"):
         check_lr_gate(failed, plan, LR_GATE_RESULTS)
 
 
@@ -339,7 +341,7 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
 
     # A fit that dropped a pre-registered point (here all of L18) is refused too.
     plan = load_study_plan(CONFIG)
-    points = [
+    points: list[dict[str, Any]] = [
         {
             "arm": f"{arm.arm}/{run.run}",
             "non_embedding_params": run.non_embedding_params,
@@ -419,10 +421,10 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
 
 def test_committed_in_head_matches_the_tracked_blob(tmp_path: Path) -> None:
     tracked = scaling_study.REPO_ROOT / ".python-version"
-    assert scaling_study._committed_in_head(tracked)
+    assert scaling_study._committed_in_head(tracked)  # pyright: ignore[reportPrivateUsage]
     copy = tmp_path / ".python-version"
     copy.write_bytes(tracked.read_bytes())
-    assert not scaling_study._committed_in_head(copy)
+    assert not scaling_study._committed_in_head(copy)  # pyright: ignore[reportPrivateUsage]
 
 
 def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
@@ -435,7 +437,7 @@ def test_study_stage_no_longer_scores_the_heldout_checkpoint(capsys) -> None:
 def test_changed_data_paths_and_added_arm_reach_training_and_result_parser(tmp_path: Path) -> None:
     import shutil
 
-    plan, shard_dir, tokenizer, tokenizer_sha256 = _tiny_study(tmp_path, added_arm=True)
+    plan, shard_dir, tokenizer, _tokenizer_sha256 = _tiny_study(tmp_path, added_arm=True)
     volume_root = tmp_path / "volume"
     configured = {
         "tokenizer": "tokenizers/bpe-v2.json",

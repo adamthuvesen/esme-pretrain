@@ -8,13 +8,14 @@ import time
 from pathlib import Path
 
 from esme_pretrain.artifacts.hashes import file_sha256
+from esme_pretrain.cli.subparsers import Subparsers
 from esme_pretrain.data.corpus_stream import document_text_stream
 from esme_pretrain.data.token_shards import manifest_path_for, write_token_shards
 from esme_pretrain.postrun.eval_checkpoints import load_tokenizer
 from esme_pretrain.pretrain_run import load_pretrain_config
 
 
-def add_pretokenize_parser(subparsers: argparse._SubParsersAction) -> None:
+def add_pretokenize_parser(subparsers: Subparsers) -> None:
     pretokenize = subparsers.add_parser(
         "pretokenize",
         help="Tokenize one corpus split into uint16 token shards with a manifest.",

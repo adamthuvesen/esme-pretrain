@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -38,8 +39,8 @@ class CharEvalModel:
         self.name = "char"
         config = _small_config()
         self.context_length = config.context_length
-        self.eos_id = 2
-        self.provenance = {"kind": "fixture"}
+        self.eos_id: int | None = 2
+        self.provenance: dict[str, Any] = {"kind": "fixture"}
         torch.manual_seed(11)
         self._module = DenseBackbone(config).eval()
         self._vocab_size = config.vocab_size
@@ -152,7 +153,7 @@ def test_evaluate_gate_requires_all_tasks() -> None:
 
 
 def _install_fake_lm_eval(monkeypatch, *, accuracies: dict[str, float], version: str = "0.4.12"):
-    calls: list[dict] = []
+    calls: list[dict[str, Any]] = []
 
     class FakeLM:
         pass

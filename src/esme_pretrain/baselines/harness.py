@@ -80,13 +80,13 @@ def build_esme_lm(model: EsmeBundleModel) -> Any:
     lm_eval = _import_lm_eval()
 
     class EsmeLM(lm_eval.api.model.LM):
-        def loglikelihood(self, requests) -> list[tuple[float, bool]]:
+        def loglikelihood(self, requests: list[Any]) -> list[tuple[float, bool]]:
             return [score_loglikelihood(model, *request.args) for request in requests]
 
-        def loglikelihood_rolling(self, requests) -> list[float]:
+        def loglikelihood_rolling(self, requests: list[Any]) -> list[float]:
             return [score_loglikelihood_rolling(model, request.args[0]) for request in requests]
 
-        def generate_until(self, requests):
+        def generate_until(self, requests: list[Any]):
             raise NotImplementedError("baseline eval tasks are loglikelihood-only")
 
     return EsmeLM()

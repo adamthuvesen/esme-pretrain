@@ -5,10 +5,11 @@ import json
 from dataclasses import asdict
 
 from esme_pretrain import __version__
+from esme_pretrain.cli.subparsers import Subparsers
 from esme_pretrain.status import current_status
 
 
-def add_status_parser(subparsers: argparse._SubParsersAction) -> None:
+def add_status_parser(subparsers: Subparsers) -> None:
     status = subparsers.add_parser("status", help="Show current project status.")
     status.add_argument("--json", action="store_true", help="Emit machine-readable status.")
     status.set_defaults(handler=handle_status)

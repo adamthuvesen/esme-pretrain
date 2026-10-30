@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -23,7 +24,7 @@ VOCAB_SIZE = 128
 
 
 class WhitespaceIdTokenizer:
-    def encode_batch(self, texts: list[str]) -> list[SimpleNamespace]:
+    def encode_batch(self, texts: list[str]) -> list[Any]:
         return [SimpleNamespace(ids=[int(word) for word in text.split()]) for text in texts]
 
 
@@ -45,28 +46,28 @@ def _flat_stream(documents: list[str]) -> list[int]:
     return flat
 
 
-def _write(output_dir: Path, documents: list[str], **overrides) -> dict:
-    kwargs = dict(
-        eos_id=EOS_ID,
-        vocab_size=VOCAB_SIZE,
-        tokenizer_sha256="0" * 64,
-        split="train",
-        output_dir=output_dir,
-        shard_tokens=53,
-        provenance={"source": "fixture"},
-    )
+def _write(output_dir: Path, documents: list[str], **overrides) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "eos_id": EOS_ID,
+        "vocab_size": VOCAB_SIZE,
+        "tokenizer_sha256": "0" * 64,
+        "split": "train",
+        "output_dir": output_dir,
+        "shard_tokens": 53,
+        "provenance": {"source": "fixture"},
+    }
     kwargs.update(overrides)
     return write_token_shards(documents, WhitespaceIdTokenizer(), **kwargs)
 
 
 def _loader(output_dir: Path, **overrides) -> ShardBatchLoader:
-    kwargs = dict(
-        vocab_size=VOCAB_SIZE,
-        tokenizer_sha256="0" * 64,
-        batch_size=2,
-        context_length=4,
-        device="cpu",
-    )
+    kwargs: dict[str, Any] = {
+        "vocab_size": VOCAB_SIZE,
+        "tokenizer_sha256": "0" * 64,
+        "batch_size": 2,
+        "context_length": 4,
+        "device": "cpu",
+    }
     kwargs.update(overrides)
     return ShardBatchLoader(manifest_path_for(output_dir, "train"), **kwargs)
 
@@ -260,13 +261,13 @@ def test_fixed_validation_batches_match_sequential_packing_and_check_the_hash(
 ) -> None:
     _write(tmp_path, _documents(200, seed=3), shard_tokens=10_000)
     reference = _rows(_loader(tmp_path, batch_size=2))[: 2 * expected_batches]
-    kwargs = dict(
-        vocab_size=VOCAB_SIZE,
-        tokenizer_sha256="0" * 64,
-        context_length=4,
-        batch_size=2,
-        eval_token_budget=token_budget,
-    )
+    kwargs: dict[str, Any] = {
+        "vocab_size": VOCAB_SIZE,
+        "tokenizer_sha256": "0" * 64,
+        "context_length": 4,
+        "batch_size": 2,
+        "eval_token_budget": token_budget,
+    }
 
     batches = fixed_validation_batches(
         manifest_path_for(tmp_path, "train"), expected_token_batch_sha256=None, **kwargs

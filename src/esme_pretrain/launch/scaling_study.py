@@ -176,7 +176,7 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         # budget timer into the next arm.
         single_use_containers=True,
     )
-    def train_arm(plan_payload: dict[str, Any], arm: str, params: dict) -> dict[str, Any]:
+    def train_arm(plan_payload: dict[str, Any], arm: str, params: dict[str, Any]) -> dict[str, Any]:
         return train_arm_body(plan_payload, arm, params, commit_results=study_volume.commit)
 
     @app.function(
@@ -184,7 +184,7 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         timeout=HELDOUT_TIMEOUT_SECONDS,
         volumes={"/study": study_volume, "/accepted": heldout_volume},
     )
-    def eval_heldout(plan_payload: dict[str, Any], params: dict) -> dict[str, Any]:
+    def eval_heldout(plan_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
         return eval_heldout_body(plan_payload, params, commit_results=study_volume.commit)
 
 
@@ -233,7 +233,7 @@ def launch(argv: list[str] | None = None) -> int:
     prediction = launch_plan.prediction.model_dump(mode="json") if launch_plan.prediction else None
     usd_per_hour = launch_plan.base.runtime.gpu_profiles[STUDY_GPU].usd_per_hour
     estimated_hours = sum(arm.flops for arm in arms) / (launch_plan.assumed_tflops * 1e12) / 3600
-    report = {
+    report: dict[str, Any] = {
         "stage": args.stage,
         "gpu": STUDY_GPU,
         "arms": [
@@ -323,7 +323,7 @@ def launch(argv: list[str] | None = None) -> int:
         for name, call in calls.items():
             try:
                 outcomes[name] = {"status": "ok", **call.get()}
-            except Exception as error:  # noqa: BLE001 - one arm's failure must not hide the rest
+            except Exception as error:  # one arm's failure must not hide the rest
                 outcomes[name] = {"status": "failed", "error": repr(error)[-2000:]}
 
     summary = {
