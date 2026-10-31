@@ -9,18 +9,22 @@ from esme_pretrain.launch.budget import require_approval
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCH_FILES = sorted([*ROOT.glob("src/esme_pretrain/launch/*.py"), *ROOT.glob("scripts/*.py")])
-INVOKE_ATTRS = {"remote", "spawn", "map", "starmap"}
+INVOKE_ATTRS = {
+    *("remote", "remote_gen", "spawn", "spawn_map", "map", "starmap", "for_each", "aio"),
+    *("listdir", "read_file", "put_file", "batch_upload", "remove_file", "copy_files", "reload"),
+}
+Function = ast.FunctionDef | ast.AsyncFunctionDef
 STATE_WRITES = {
     *("open", "write_text", "write_bytes", "mkdir", "makedirs", "touch", "mkdtemp"),
     *("save", "commit", "init", "login"),
 }
 
 
-def _decorated(fn: ast.FunctionDef, name: str) -> bool:
+def _decorated(fn: Function, name: str) -> bool:
     return any(name in ast.unparse(decorator) for decorator in fn.decorator_list)
 
 
-def _modal_call_lines(fn: ast.FunctionDef) -> list[int]:
+def _modal_call_lines(fn: Function) -> list[int]:
     lines = []
     for statement in fn.body:
         for node in ast.walk(statement):
@@ -35,7 +39,7 @@ def _modal_call_lines(fn: ast.FunctionDef) -> list[int]:
     return lines
 
 
-def _state_write_lines(fn: ast.FunctionDef) -> list[int]:
+def _state_write_lines(fn: Function) -> list[int]:
     lines = []
     for node in ast.walk(fn):
         if not isinstance(node, ast.Call):
@@ -47,8 +51,9 @@ def _state_write_lines(fn: ast.FunctionDef) -> list[int]:
     return lines
 
 
-def _approval_gate_line(fn: ast.FunctionDef) -> int | None:
-    for node in ast.walk(fn):
+def _approval_gate_line(fn: Function) -> int | None:
+    # Only a top-level gate holds on every path; one inside a branch can be skipped.
+    for node in fn.body:
         if not isinstance(node, ast.If):
             continue
         test = node.test
@@ -66,7 +71,7 @@ def _approval_gate_line(fn: ast.FunctionDef) -> int | None:
 def _ungated_launches(source: str, label: str) -> list[str]:
     problems = []
     for fn in ast.walk(ast.parse(source)):
-        if not isinstance(fn, ast.FunctionDef) or _decorated(fn, "app.function"):
+        if not isinstance(fn, Function) or _decorated(fn, "app.function"):
             continue
         where = f"{label}:{fn.name}"
         if _decorated(fn, "local_entrypoint"):
@@ -113,6 +118,22 @@ def launch_writes_first(args):
 def main():
     run.remote()
 
+def launch_branch_gated(args):
+    if args.check_only:
+        if not require_approval(args.approved, run="x", command="x"):
+            return 2
+    run.spawn()
+
+async def launch_async(args):
+    await run.remote.aio()
+
+def launch_generator(args):
+    for _ in run.remote_gen():
+        pass
+
+def launch_volume(args):
+    study_volume.listdir("/")
+
 def launch_ok(args):
     if not require_approval(args.approved, run="x", command="x"):
         return 2
@@ -126,6 +147,10 @@ def test_the_scan_finds_each_ungated_launch() -> None:
         "bad.py:launch_early calls Modal before `if not require_approval(...): return`",
         "bad.py:launch_writes_first writes state before `if not require_approval(...): return`",
         "bad.py:main must only delegate to the gated launch()",
+        "bad.py:launch_branch_gated calls Modal before `if not require_approval(...): return`",
+        "bad.py:launch_async calls Modal before `if not require_approval(...): return`",
+        "bad.py:launch_generator calls Modal before `if not require_approval(...): return`",
+        "bad.py:launch_volume calls Modal before `if not require_approval(...): return`",
     ]
 
 

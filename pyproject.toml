@@ -40,7 +40,7 @@ baselines = [
 esme-pretrain = "esme_pretrain.cli:main"
 
 [tool.pytest.ini_options]
-addopts = "-q -m 'not network and not slow'"
+addopts = "-q --strict-markers -m 'not network and not slow'"
 markers = [
   "network: downloads real models or datasets; opt in with `pytest -m network`",
   "slow: offline but too slow for `make check`; run with `make slow`",
