@@ -8,6 +8,7 @@ version is allowed only with a ``# modal-python-pin: <reason>`` comment and no r
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,3 +67,15 @@ def test_the_check_flags_a_literal_version() -> None:
     assert python_version_violations(planted, "planted.py")
     pinned = f'{PIN_MARKER} legacy tool\nimage = modal.Image.debian_slim(python_version="3.13")\n'
     assert not python_version_violations(pinned, "pinned.py")
+
+
+def test_images_install_locked_versions_through_uv() -> None:
+    pip_installs = [
+        str(path.relative_to(ROOT))
+        for path in modal_python_files()
+        if re.search(r"(?<!uv_)pip_install\(", path.read_text(encoding="utf-8"))
+    ]
+    assert not pip_installs, (
+        f"{pip_installs} install with pip. Use `uv_pip_install(*image_package_pins())` from "
+        "launch/modal_image.py, so the image runs the uv.lock versions."
+    )

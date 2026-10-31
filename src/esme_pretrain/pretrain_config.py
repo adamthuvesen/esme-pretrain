@@ -123,6 +123,12 @@ class RuntimeConfig(RunSettings):
             raise ValueError(f"unsupported GPU profiles {unknown}; use {sorted(MODAL_GPUS)}")
         if self.selected_gpu not in self.gpu_profiles:
             raise ValueError("selected_gpu must name a gpu_profiles entry")
+        worst_case_usd = self.timeout_hours * self.gpu_profiles[self.selected_gpu].usd_per_hour
+        if worst_case_usd > self.max_cost_usd:
+            raise ValueError(
+                f"timeout_hours {self.timeout_hours} on {self.selected_gpu} can spend "
+                f"${worst_case_usd:.2f}, over max_cost_usd ${self.max_cost_usd:g}"
+            )
         for name, profile in self.gpu_profiles.items():
             if profile.modal_gpu != name:
                 raise ValueError(f"gpu_profiles.{name}.modal_gpu must be {name}")

@@ -4,17 +4,11 @@ from pathlib import Path
 from typing import Any
 
 from esme_pretrain.launch.budget import LAUNCH_APPROVAL_FLAG
+from esme_pretrain.launch.modal_image import image_package_pins, locked_version
 from esme_pretrain.pretrain_config import RuntimeConfig
 from esme_pretrain.pretrain_run import PretrainLaunchConfig
 
-MODAL_CLIENT_VERSION = "1.5.0"
-IMAGE_PACKAGE_PINS: dict[str, str] = {
-    "torch": "2.12.1",
-    "pydantic": "2.14.2",
-    "datasets": "5.0.0",
-    "tokenizers": "0.23.1",
-    "wandb": "0.27.2",
-}
+MODAL_CLIENT_VERSION = locked_version("modal")
 
 
 def build_pretrain_dry_run(config: PretrainLaunchConfig) -> dict[str, Any]:
@@ -50,7 +44,7 @@ def build_pretrain_dry_run(config: PretrainLaunchConfig) -> dict[str, Any]:
         "monitoring": payload["monitoring"],
         "dependency_pins": {
             "modal": MODAL_CLIENT_VERSION,
-            **IMAGE_PACKAGE_PINS,
+            **image_package_pins(),
         },
         "artifacts": {
             "output_dir": config.output_dir,

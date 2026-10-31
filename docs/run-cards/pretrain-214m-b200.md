@@ -62,7 +62,7 @@ tokens before the finite `sample-10BT` stream exhausted. Its artifacts live on
 the Modal volume `llm-pretrain-214m-b200`.
 
 ```bash
-PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=24 uv run --with modal==1.5.0 modal run --detach scripts/modal_pretrain.py --config configs/pretrain_214m_b200.json --json
+PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=16 uv run --with modal==1.5.0 modal run --detach scripts/modal_pretrain.py --config configs/pretrain_214m_b200.json --json
 ```
 
 The script refuses the full Modal job unless `--approved` is present, and prints
@@ -73,11 +73,13 @@ only for a short inline smoke.
 
 ## Modal Safety
 
-- The configured timeout is `24h`, the Modal per-function maximum. The selected
-  B200 projection is `9.77h`. The launcher refuses when the projection exceeds
-  the timeout.
+- The configured timeout is `16h`, the largest whole number of hours that keeps
+  `timeout_hours × usd_per_hour` within the `$100` cap on B200 (`$6.25/h`). The
+  config refuses a timeout that could spend more than `max_cost_usd`. The
+  selected B200 projection is `9.77h`. The launcher refuses when the projection
+  exceeds the timeout.
 - Retries stay disabled (`allow_retries=false`), because a retry rents the GPU
-  again. If a future profile needs more than `24h`, keep the launch blocked
+  again. If a future profile needs more than the timeout, keep the launch blocked
   until chunked resume exists.
 - The full run writes periodic checkpoints to the Modal Volume and resumes from
   the latest one.

@@ -111,6 +111,7 @@ def test_pretrain_config_rejects_drift(tmp_path: Path) -> None:
     payload = json.loads(CONFIG_214M_B200.read_text(encoding="utf-8"))
     payload["runtime"]["max_cost_usd"] = 40
     payload["runtime"]["runtime_spend_stop_usd"] = 40
+    payload["runtime"]["timeout_hours"] = 6
     config_path = tmp_path / "bad.json"
     config_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -419,6 +420,7 @@ def test_pretrain_config_rejects_unpinned_dataset_revision(tmp_path: Path) -> No
         ("max_cost_usd", 101, "absolute pretrain spend cap"),
         ("runtime_spend_stop_usd", 90, "must equal max_cost_usd"),
         ("allow_retries", True, "allow_retries must be false"),
+        ("timeout_hours", 17, r"can spend \$106.25, over max_cost_usd \$100"),
     ],
 )
 def test_run_card_schema_enforces_the_spend_cap(key: str, value: object, error: str) -> None:
@@ -448,7 +450,7 @@ def test_gpu_smoke_requires_approval_before_remote_execution(monkeypatch, capsys
     assert "--approved" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("gpu,timeout", [("H100!", 24), ("B200", 19)])
+@pytest.mark.parametrize("gpu,timeout", [("H100!", 16), ("B200", 19)])
 def test_full_launch_refuses_hardware_or_timeout_drift_before_spawn(
     gpu: str, timeout: int, capsys
 ) -> None:
@@ -466,8 +468,8 @@ def test_full_launch_refuses_hardware_or_timeout_drift_before_spawn(
     )
     error = capsys.readouterr().err
     assert f"GPU {gpu!r}, timeout {timeout}h" in error
-    assert "expected GPU 'B200', timeout 24h" in error
-    assert "PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=24" in error
+    assert "expected GPU 'B200', timeout 16h" in error
+    assert "PRETRAIN_GPU='B200' PRETRAIN_TIMEOUT_HOURS=16" in error
 
 
 @pytest.mark.parametrize("cap", ["0", "nan", "inf"])
