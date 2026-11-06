@@ -224,11 +224,13 @@ def test_study_stage_refuses_a_spend_cap_below_its_worst_case(capsys) -> None:
     assert "exceeds cap" in capsys.readouterr().err
 
 
-def test_launch_without_approval_refuses_before_modal(capsys) -> None:
+def test_launch_without_approval_refuses_before_modal(capsys, modal_calls) -> None:
+    calls = modal_calls(scaling_study)
     code = scaling_study.launch(["--stage", "smoke", "--spend-cap-usd", "20"])
 
     assert code == 2
     assert "--approved" in capsys.readouterr().err
+    assert calls == []
 
 
 def test_validation_scores_in_true_fp32_after_training_enabled_tf32(
@@ -304,7 +306,7 @@ def test_a_cancelled_arm_budget_timer_never_fires() -> None:
 
 
 def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
-    tmp_path: Path, capsys
+    tmp_path: Path, capsys, modal_calls
 ) -> None:
     # The run card pre-registers that the 214M actual is read only after the fit's
     # prediction exists; the launcher enforces that order.
@@ -414,9 +416,11 @@ def test_heldout_stage_refuses_to_run_before_a_prediction_is_written(
 
     # A valid fit still reveals nothing until it is committed: this one is outside
     # the repository, so the real launch refuses before renting a GPU.
+    calls = modal_calls(scaling_study)
     code = scaling_study.launch([*args, "--approved"])
     assert code == 2
     assert "before the held-out eval reveals the 214M loss" in capsys.readouterr().err
+    assert calls == []
 
 
 def test_committed_in_head_matches_the_tracked_blob(tmp_path: Path) -> None:

@@ -51,7 +51,6 @@ testpaths = ["tests"]
 line-length = 100
 target-version = "py314"
 src = ["src", "tests"]
-exclude = ["archive"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PTH", "RUF", "PGH003", "PGH004", "TID251"]
@@ -72,6 +71,7 @@ ignore = ["E501"]
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "subprocess".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
 "pty".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
+"asyncio.subprocess".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
 "asyncio.create_subprocess_exec".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
 "asyncio.create_subprocess_shell".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
 "os.system".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."

@@ -62,7 +62,7 @@ def test_pretrain_214m_b200_cli_dry_run_is_guarded(capsys) -> None:
     assert payload["will_download_data"] is False
     assert payload["will_start_modal_job"] is False
     assert "PRETRAIN_GPU='B200'" in payload["launch_command"]
-    assert "modal run --detach" in payload["launch_command"]
+    assert "python scripts/modal_pretrain.py" in payload["launch_command"]
     assert "--approved" in payload["launch_command"]
 
 

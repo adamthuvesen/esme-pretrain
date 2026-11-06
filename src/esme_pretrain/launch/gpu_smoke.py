@@ -85,40 +85,6 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
     def run_smoke(plan_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
         return _run_smoke_body(plan_payload, params)
 
-    @app.local_entrypoint()
-    def main(
-        config: str = "configs/pretrain_214m_b200.json",
-        max_steps: int = 3,
-        micro_batch_size: int = 0,
-        grad_accum_steps: int = 0,
-        spend_cap_usd: float = 10.0,
-        json: bool = True,
-        approved: bool = False,
-    ) -> None:
-        """Run one short, spend-capped GPU smoke.
-
-        The smoke is a few steps and blocks on .remote() so its result comes back
-        inline rather than as a detached run.
-        """
-        raise SystemExit(
-            launch(
-                [
-                    "--config",
-                    config,
-                    "--max-steps",
-                    str(max_steps),
-                    "--micro-batch-size",
-                    str(micro_batch_size),
-                    "--grad-accum-steps",
-                    str(grad_accum_steps),
-                    "--spend-cap-usd",
-                    str(spend_cap_usd),
-                    "--json" if json else "--no-json",
-                    *(["--approved"] if approved else []),
-                ]
-            )
-        )
-
 
 def launch(argv: list[str] | None = None) -> int:
     import argparse
@@ -182,7 +148,8 @@ def launch(argv: list[str] | None = None) -> int:
 
     params = {"commit": local_git_commit(REPO_ROOT), "dirty": local_git_dirty(REPO_ROOT)}
     wall_start = time.perf_counter()
-    result = run_smoke.remote(plan.model_dump(mode="json", by_alias=True), params)
+    with modal.enable_output(), app.run():
+        result = run_smoke.remote(plan.model_dump(mode="json", by_alias=True), params)
     result["client_wall_seconds"] = time.perf_counter() - wall_start
     result["worst_case_cost_usd"] = round(plan.budget.worst_case_cost_usd, 4)
 

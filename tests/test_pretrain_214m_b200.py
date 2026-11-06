@@ -74,7 +74,7 @@ def test_pretrain_214m_b200_dry_run_includes_gpu_projection_and_approval_gate() 
         round(profile.usd_per_hour / profile.projected_tokens_per_second * 1e9 / 3600, 2)
     )
     assert "PRETRAIN_GPU='B200'" in payload["launch_command"]
-    assert "modal run --detach" in payload["launch_command"]
+    assert "python scripts/modal_pretrain.py" in payload["launch_command"]
     assert "--approved" in payload["launch_command"]
     assert "--approved-by-" + "adam" not in payload["launch_command"]
 
@@ -441,13 +441,11 @@ def test_pretrain_config_rejects_model_drift(tmp_path: Path) -> None:
         load_pretrain_config(config_path)
 
 
-def test_gpu_smoke_requires_approval_before_remote_execution(monkeypatch, capsys) -> None:
-    def forbidden_remote(*_args, **_kwargs):
-        raise AssertionError("GPU smoke must refuse before remote execution")
-
-    monkeypatch.setattr(gpu_smoke, "run_smoke", SimpleNamespace(remote=forbidden_remote))
+def test_gpu_smoke_requires_approval_before_remote_execution(capsys, modal_calls) -> None:
+    calls = modal_calls(gpu_smoke)
     assert gpu_smoke.launch(["--spend-cap-usd", "10"]) == 2
     assert "--approved" in capsys.readouterr().err
+    assert calls == []
 
 
 @pytest.mark.parametrize("gpu,timeout", [("H100!", 16), ("B200", 19)])

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import shutil
 import signal
 import sys
 import time
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -96,6 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 def launch(
     argv: list[str] | None = None,
     *,
+    app: Any | None = None,
     run_pretrain_launch: Any | None = None,
     modal_gpu: str | None = None,
     modal_timeout_hours: int | None = None,
@@ -149,21 +152,38 @@ def launch(
         print(f"pretrain launch refused: {error}", file=sys.stderr)
         return 2
 
-    function_call = run_pretrain_launch.spawn(
-        config.config.model_dump(mode="json", by_alias=True),
-        local_git_commit(REPO_ROOT),
-        local_git_dirty(REPO_ROOT),
-    )
-    if args.spawn:
-        print(
-            _format_spawn_payload(config, function_call.object_id),
-            file=sys.stdout,
+    if app is None:
+        print("pretrain launch failed: pass the Modal app to run the launch in", file=sys.stderr)
+        return 2
+
+    # Detached and started only after the gate: a client disconnect does not stop the
+    # spawned run, and an unapproved command never builds the image or creates the Volume.
+    with app.run(detach=True):
+        function_call = run_pretrain_launch.spawn(
+            config.config.model_dump(mode="json", by_alias=True),
+            local_git_commit(REPO_ROOT),
+            local_git_dirty(REPO_ROOT),
         )
-        return 0
-    result = function_call.get()
+        if args.spawn:
+            print(
+                _format_spawn_payload(config, function_call.object_id),
+                file=sys.stdout,
+            )
+            return 0
+        result = function_call.get()
     _mirror_volume_report(config, result)
     print(_format_payload(result, json_output=args.json))
     return 0
+
+
+# A short repeating sequence, so a working loop visibly learns in 4 steps. Uniform random
+# tokens give a loss drop no larger than batch noise, and a broken optimizer still passes.
+REHEARSAL_PERIOD_TOKENS = 17
+
+
+def _rehearsal_tokens(vocab_size: int, *, seed: int) -> Iterator[int]:
+    period = synthetic_token_stream(vocab_size, seed=seed, total_tokens=REHEARSAL_PERIOD_TOKENS)
+    return itertools.cycle(list(period))
 
 
 def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
@@ -189,13 +209,13 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
         z_loss_weight=0.0,
     )
     train_loader = StreamingBatchLoader(
-        synthetic_token_stream(rehearsal_model.vocab_size, seed=0),
+        _rehearsal_tokens(rehearsal_model.vocab_size, seed=0),
         batch_size=4,
         context_length=rehearsal_model.context_length,
         device="cpu",
     )
     eval_loader = StreamingBatchLoader(
-        synthetic_token_stream(rehearsal_model.vocab_size, seed=1),
+        _rehearsal_tokens(rehearsal_model.vocab_size, seed=1),
         batch_size=4,
         context_length=rehearsal_model.context_length,
         device="cpu",
@@ -231,13 +251,13 @@ def run_local_dress_rehearsal(config: PretrainLaunchConfig) -> dict[str, Any]:
     resume_result = run_pretrain(
         resumed_config,
         StreamingBatchLoader(
-            synthetic_token_stream(rehearsal_model.vocab_size, seed=0),
+            _rehearsal_tokens(rehearsal_model.vocab_size, seed=0),
             batch_size=4,
             context_length=rehearsal_model.context_length,
             device="cpu",
         ),
         eval_loader=StreamingBatchLoader(
-            synthetic_token_stream(rehearsal_model.vocab_size, seed=1),
+            _rehearsal_tokens(rehearsal_model.vocab_size, seed=1),
             batch_size=4,
             context_length=rehearsal_model.context_length,
             device="cpu",

@@ -115,6 +115,11 @@ def require(condition: bool, message: str) -> None:
         raise DriveFailed(message)
 
 
+# Measured 2026-11-07 on the rehearsal stream: 4 steps drop the loss 0.82 at the
+# rehearsal LR and 0.00 at lr=1e-12, so a loop that does not learn fails this margin.
+MIN_TRAIN_LOSS_DROP = 0.25
+
+
 def drive_train(ctx: Context, *, max_final_loss: float | None = None) -> str:
     config, out_parent = ctx.rehearsal_config()
     try:
@@ -148,7 +153,7 @@ def drive_train(ctx: Context, *, max_final_loss: float | None = None) -> str:
     losses = [loss for _, loss in train] + [row["val_loss"] for row in rows if "val_loss" in row]
     require(all(math.isfinite(loss) for loss in losses), f"non-finite loss in {losses}")
     first, final = first_run[0][1], first_run[-1][1]
-    ceiling = first if max_final_loss is None else max_final_loss
+    ceiling = first - MIN_TRAIN_LOSS_DROP if max_final_loss is None else max_final_loss
     require(
         final < ceiling,
         f"expected final train loss < {ceiling:.4f}, got {final:.4f} (first {first:.4f})",

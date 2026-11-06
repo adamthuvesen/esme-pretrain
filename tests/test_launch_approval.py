@@ -75,9 +75,9 @@ def _ungated_launches(source: str, label: str) -> list[str]:
             continue
         where = f"{label}:{fn.name}"
         if _decorated(fn, "local_entrypoint"):
-            calls = {ast.unparse(n.func) for n in ast.walk(fn) if isinstance(n, ast.Call)}
-            if "launch" not in calls or _modal_call_lines(fn):
-                problems.append(f"{where} must only delegate to the gated launch()")
+            # `modal run` starts the app (image build, uploads, Volumes) before the
+            # entrypoint runs, so no gate inside it comes first.
+            problems.append(f"{where}: launch with python and `app.run()` after the gate")
             continue
         modal_lines = _modal_call_lines(fn)
         gate = _approval_gate_line(fn)
@@ -146,7 +146,7 @@ def test_the_scan_finds_each_ungated_launch() -> None:
     assert _ungated_launches(UNGATED, "bad.py") == [
         "bad.py:launch_early calls Modal before `if not require_approval(...): return`",
         "bad.py:launch_writes_first writes state before `if not require_approval(...): return`",
-        "bad.py:main must only delegate to the gated launch()",
+        "bad.py:main: launch with python and `app.run()` after the gate",
         "bad.py:launch_branch_gated calls Modal before `if not require_approval(...): return`",
         "bad.py:launch_async calls Modal before `if not require_approval(...): return`",
         "bad.py:launch_generator calls Modal before `if not require_approval(...): return`",

@@ -12,7 +12,6 @@ from esme_pretrain.launch.modal_pretrain_body import (
     launch,
     run_pretrain_launch_body,
 )
-from esme_pretrain.launch.pretrain import LAUNCH_APPROVAL_FLAG
 
 PRETRAIN_GPU = os.environ.get("PRETRAIN_GPU", "H100")
 PRETRAIN_TIMEOUT_HOURS = int(float(os.environ.get("PRETRAIN_TIMEOUT_HOURS", "19")))
@@ -24,7 +23,8 @@ try:
 except ImportError:  # pragma: no cover - Modal is supplied by the launch command.
     modal = None
 
-run_pretrain_launch = None  # pyright: ignore[reportAssignmentType]
+app: Any = None
+run_pretrain_launch = None
 
 if modal is not None:  # pragma: no cover - exercised by Modal, not local unit tests.
     image = build_pretrain_modal_image(
@@ -51,33 +51,11 @@ if modal is not None:  # pragma: no cover - exercised by Modal, not local unit t
             # kill can still interrupt anything, so the body also arms a softer alarm.
             pretrain_volume.commit()
 
-    @app.local_entrypoint()
-    def main(config: str, approved: bool = False, json: bool = False, spawn: bool = True) -> None:
-        """Launch the long 214M B200 pretrain.
-
-        Spawns by default so `modal run --detach` returns once the FunctionCall
-        is created; the spawn branch prints its id and a monitor hint. Pass
-        `--no-spawn` to block on the result inline for a short smoke.
-        """
-        argv = ["--config", config]
-        if approved:
-            argv.append(LAUNCH_APPROVAL_FLAG)
-        if json:
-            argv.append("--json")
-        argv.append("--spawn" if spawn else "--no-spawn")
-        raise SystemExit(
-            launch(
-                argv,
-                run_pretrain_launch=run_pretrain_launch,
-                modal_gpu=PRETRAIN_GPU,
-                modal_timeout_hours=PRETRAIN_TIMEOUT_HOURS,
-            )
-        )
-
 
 if __name__ == "__main__":
     raise SystemExit(
         launch(
+            app=app,
             run_pretrain_launch=run_pretrain_launch,
             modal_gpu=PRETRAIN_GPU,
             modal_timeout_hours=PRETRAIN_TIMEOUT_HOURS,

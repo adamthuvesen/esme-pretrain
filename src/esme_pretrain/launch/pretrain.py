@@ -64,7 +64,7 @@ def _launch_command(config_path: Path, runtime: RuntimeConfig) -> str:
     return (
         f"PRETRAIN_GPU='{modal_gpu}' PRETRAIN_TIMEOUT_HOURS={timeout_hours} "
         f"uv run --with modal=={MODAL_CLIENT_VERSION} "
-        "modal run --detach scripts/modal_pretrain.py "
+        "python scripts/modal_pretrain.py "
         f"--config {config_path.as_posix()} {LAUNCH_APPROVAL_FLAG} --json"
     )
 

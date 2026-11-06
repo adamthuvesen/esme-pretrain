@@ -29,13 +29,15 @@ def test_spend_cap_below_the_worst_case_refuses(capsys) -> None:
     assert "exceeds cap" in capsys.readouterr().err
 
 
-def test_launch_without_approval_refuses_before_modal(capsys) -> None:
+def test_launch_without_approval_refuses_before_modal(capsys, modal_calls) -> None:
+    calls = modal_calls(throughput_bench)
     code = throughput_bench.launch(
         ["--config", CONFIG, "--spend-cap-usd", "10", "--before-commit", "HEAD"]
     )
 
     assert code == 2
     assert "--approved" in capsys.readouterr().err
+    assert calls == []
 
 
 def test_unknown_before_commit_refuses(capsys) -> None:
