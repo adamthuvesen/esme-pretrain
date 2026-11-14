@@ -126,7 +126,7 @@ def test_study_preserves_fractional_multipliers_and_zero_decay() -> None:
 def test_validated_run_profiles_cannot_change_after_cost_validation() -> None:
     config = load_pretrain_config(Path("configs/pretrain_214m_b200.json"))
     with pytest.raises(TypeError):
-        config.config.runtime.gpu_profiles["B200"] = config.selected_gpu_profile  # pyright: ignore[reportIndexIssue]
+        config.config.runtime.gpu_profiles["B200"] = config.selected_gpu_profile  # pyright: ignore[reportIndexIssue]  # the test proves the mapping refuses this write
     with pytest.raises(ValidationError):
         config.selected_gpu_profile.usd_per_hour = 0.0
 

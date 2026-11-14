@@ -194,7 +194,7 @@ def test_sample_checkpoint_uses_real_checkpoint_and_tokenizer(tmp_path: Path) ->
 def test_checkpoint_sample_rejects_prompt_above_context() -> None:
     with pytest.raises(ValueError, match="above checkpoint context length 4"):
         generate_completion(
-            _SampleModel(),  # pyright: ignore[reportArgumentType]
+            _SampleModel(),  # pyright: ignore[reportArgumentType]  # a minimal fake stands in for the model
             _SampleTokenizer(),
             "12345",
             max_new_tokens=1,
@@ -319,7 +319,7 @@ def test_tokenized_validation_stream_uses_shared_corpus_stream(monkeypatch) -> N
 
     monkeypatch.setattr(eval_checkpoints, "document_text_stream", fake_document_text_stream)
 
-    tokens = list(eval_checkpoints.tokenized_validation_stream(config, FakeTokenizer(), eos_id=0))  # pyright: ignore[reportArgumentType]
+    tokens = list(eval_checkpoints.tokenized_validation_stream(config, FakeTokenizer(), eos_id=0))  # pyright: ignore[reportArgumentType]  # fakes stand in for the config and tokenizer
 
     assert tokens == [(7, 1), (8, 2), (0, 0)]
     assert captured == {"config": config, "split": "validation"}

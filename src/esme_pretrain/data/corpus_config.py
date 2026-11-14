@@ -49,7 +49,7 @@ class DocumentSplitConfig(BaseModel):
 
 # Each recipe maps to the run card that holds its data audit and approval.
 AUDITED_CORPUS_RECIPES: dict[DatasetConfig, str] = {
-    DatasetConfig.model_construct(  # pyright: ignore[reportUnhashable]
+    DatasetConfig.model_construct(  # pyright: ignore[reportUnhashable]  # frozen model; pydantic hashes it, pyright cannot see that
         name="fineweb-edu",
         source="HuggingFaceFW/fineweb-edu",
         revision="87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",

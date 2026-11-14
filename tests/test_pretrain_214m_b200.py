@@ -369,7 +369,7 @@ def test_bounded_tokenizer_texts_use_shared_corpus_stream(monkeypatch) -> None:
 
     monkeypatch.setattr(modal_tokenizer, "document_text_stream", fake_document_text_stream)
 
-    assert list(modal_tokenizer._bounded_texts_for_tokenizer(config)) == ["abcd"]  # pyright: ignore[reportArgumentType]
+    assert list(modal_tokenizer._bounded_texts_for_tokenizer(config)) == ["abcd"]  # pyright: ignore[reportArgumentType]  # a SimpleNamespace stands in for the launch config
     assert captured == {"config": config, "split": "train"}
 
 

@@ -35,7 +35,7 @@ def test_real_study_plan_branches_fork_inside_the_main_runs_peak_phase() -> None
     warmup = int(plan.optimizer.warmup_steps)
     for arm in plan.arms_for("study"):
         main, *branches = arm.runs
-        assert main.checkpoint_steps == tuple(sorted(branch.fork_step for branch in branches))  # pyright: ignore[reportArgumentType]
+        assert main.checkpoint_steps == tuple(sorted(branch.fork_step for branch in branches))  # pyright: ignore[reportArgumentType]  # every branch run sets fork_step
         for branch in branches:
             assert branch.fork_step is not None
             assert warmup <= branch.fork_step < branch.max_steps <= main.max_steps

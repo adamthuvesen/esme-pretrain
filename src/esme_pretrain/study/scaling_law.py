@@ -36,7 +36,7 @@ class LossPoint:
     val_ce: float
 
     def __post_init__(self) -> None:
-        if not isinstance(self.arm, str) or not self.arm:  # pyright: ignore[reportUnnecessaryIsInstance]
+        if not isinstance(self.arm, str) or not self.arm:  # pyright: ignore[reportUnnecessaryIsInstance]  # rows come from untyped JSON at runtime
             raise ValueError(f"loss point arm must be a non-empty string, got {self.arm!r}")
         for name in ("non_embedding_params", "tokens"):
             value = getattr(self, name)
@@ -46,7 +46,7 @@ class LossPoint:
                 )
         if (
             isinstance(self.val_ce, bool)
-            or not isinstance(self.val_ce, (int, float))  # pyright: ignore[reportUnnecessaryIsInstance]
+            or not isinstance(self.val_ce, (int, float))  # pyright: ignore[reportUnnecessaryIsInstance]  # rows come from untyped JSON at runtime
             or not math.isfinite(self.val_ce)
             or self.val_ce <= 0
         ):
@@ -179,7 +179,7 @@ def _fit_tensors(
     if not huber_delta > 0:
         raise ValueError(f"huber_delta must be positive, got {huber_delta}")
     for point in points:
-        if not isinstance(point, LossPoint):  # pyright: ignore[reportUnnecessaryIsInstance]
+        if not isinstance(point, LossPoint):  # pyright: ignore[reportUnnecessaryIsInstance]  # callers may pass untyped JSON rows
             raise ValueError(f"expected LossPoint, got {type(point).__name__}")
     log_n = torch.tensor([math.log(p.non_embedding_params) for p in points], dtype=torch.float64)
     log_d = torch.tensor([math.log(p.tokens) for p in points], dtype=torch.float64)

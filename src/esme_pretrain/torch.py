@@ -8,6 +8,6 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-import torch  # noqa: E402
+import torch  # noqa: E402  # the warning filter above must run before torch loads
 
 __all__ = ["torch"]

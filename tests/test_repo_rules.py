@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
+import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -140,3 +143,50 @@ def test_the_checks_find_known_violations(tmp_path: Path) -> None:
     ):
         with pytest.raises(AssertionError):
             _rule_rows(broken)
+
+
+# Each owner file lifts every TID251 ban in pyproject.toml, so this map holds what each may use.
+BAN_OWNERS = {
+    "src/esme_pretrain/launch/gpu_smoke.py": {"subprocess", "modal"},
+    "src/esme_pretrain/launch/modal_artifacts.py": {"subprocess"},
+    "src/esme_pretrain/launch/scaling_study.py": {"subprocess", "modal"},
+    "src/esme_pretrain/launch/throughput_bench.py": {"subprocess", "modal"},
+    "scripts/modal_pretrain.py": {"modal"},
+    "src/esme_pretrain/training/metrics.py": {"wandb"},
+    "tests/test_repo_rules.py": {"subprocess"},
+    "tests/test_scaling_study.py": {"subprocess"},
+    "tests/test_strict_mode.py": {"subprocess"},
+    ".agents/skills/verify-esme-pretrain/verify": {"subprocess", "socket"},
+}
+
+
+def _banned_uses(paths: list[str]) -> dict[str, set[str]]:
+    ruff = str(Path(sys.executable).with_name("ruff"))
+    command = [ruff, "check", "--no-cache", "--exit-zero", "--select", "TID251"]
+    report = subprocess.run(
+        [*command, "--config", "lint.per-file-ignores={}", "--output-format", "json", *paths],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    uses: dict[str, set[str]] = {}
+    for item in json.loads(report):
+        name = re.search(r"`([^`]+)` is banned", item["message"])
+        assert name, item["message"]
+        path = Path(item["filename"]).resolve().relative_to(ROOT).as_posix()
+        uses.setdefault(path, set()).add(name.group(1))
+    return uses
+
+
+def test_ban_owners_use_only_the_bans_they_own() -> None:
+    ignores = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"][
+        "lint"
+    ]["per-file-ignores"]
+    assert {path for path, codes in ignores.items() if "TID251" in codes} == set(BAN_OWNERS)
+    extra = {
+        path: sorted(used - BAN_OWNERS[path])
+        for path, used in _banned_uses(sorted(BAN_OWNERS)).items()
+        if used - BAN_OWNERS[path]
+    }
+    assert not extra, f"owner files use bans they do not own: {extra}. Move the call to its owner."

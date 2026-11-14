@@ -115,8 +115,8 @@ def test_document_text_stream_loads_configured_dataset_and_reuses_split(monkeypa
         )
     )
 
-    train = list(corpus_stream.document_text_stream(config, split="train"))  # pyright: ignore[reportArgumentType]
-    validation = list(corpus_stream.document_text_stream(config, split="validation"))  # pyright: ignore[reportArgumentType]
+    train = list(corpus_stream.document_text_stream(config, split="train"))  # pyright: ignore[reportArgumentType]  # a SimpleNamespace stands in for the launch config
+    validation = list(corpus_stream.document_text_stream(config, split="validation"))  # pyright: ignore[reportArgumentType]  # a SimpleNamespace stands in for the launch config
 
     assert captured == {
         "source": "HuggingFaceFW/fineweb-edu",
@@ -156,7 +156,7 @@ def test_local_parquet_files_are_read_in_sorted_order(tmp_path: Path, monkeypatc
     )
 
     texts = list(
-        corpus_stream.document_text_stream(config, split="validation", parquet_files=files)  # pyright: ignore[reportArgumentType]
+        corpus_stream.document_text_stream(config, split="validation", parquet_files=files)  # pyright: ignore[reportArgumentType]  # a SimpleNamespace stands in for the launch config
     )
 
     assert texts == ["text"]
