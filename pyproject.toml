@@ -14,7 +14,7 @@ dependencies = [
   "numpy>=2.0",
   "pydantic>=2.12",
   "tokenizers>=0.21",
-  "torch>=2.7",
+  "torch==2.12.1",
 ]
 
 [project.optional-dependencies]
@@ -99,6 +99,11 @@ ignore = ["E501"]
 "urllib.request".msg = "Network clients have no owner module in this repo."
 "requests".msg = "Network clients have no owner module in this repo."
 "httpx".msg = "Network clients have no owner module in this repo."
+"aiohttp".msg = "Network clients have no owner module in this repo."
+"urllib3".msg = "Network clients have no owner module in this repo."
+"huggingface_hub".msg = "Network clients have no owner module in this repo."
+"ftplib".msg = "Network clients have no owner module in this repo."
+"asyncio.open_connection".msg = "Network clients have no owner module in this repo."
 "modal".msg = "Modal spends money: only the gated launchers in `launch/` and `scripts/modal_pretrain.py` import it."
 "wandb".msg = "W&B writes belong to `training/metrics.py`."
 

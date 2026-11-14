@@ -20,9 +20,13 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Workflow
 
 - Use `uv run ...` for project commands. Run `make check` before you commit.
-- Paid work (Modal, GPU, FineWeb-Edu or ClimbMix streaming, W&B writes, paid APIs) needs
-  an explicit run card and chat approval of the exact command, hardware, and cost cap
-  before you pass `--approved`. The code enforces the flag and the caps, not the approval.
+- Keep torch at 2.12.1 until the scaling study ends, because its LR stage ran on that
+  version. Bump it after the study.
+- Paid work (Modal, GPU, W&B writes, paid APIs) needs an explicit run card and chat
+  approval of the exact command, hardware, and cost cap before you pass `--approved`.
+  The code enforces the flag and the caps, not the approval.
+- FineWeb-Edu and ClimbMix streaming from the Hugging Face Hub is free but slow, and
+  has no approval gate.
 
 ## Code Rules
 

@@ -249,7 +249,7 @@ uv run modal volume put esme-pretrain-study <tokenizer.json> /tokenizer.json
 
 # Each stage: price it first, then launch.
 uv run python scripts/modal_scaling_study.py --stage study --spend-cap-usd <cap> --check-only
-# Without --approved this refuses and prints the approved form for Adam to run.
+# Without approval this refuses and prints the approved form for Adam to run.
 uv run python scripts/modal_scaling_study.py --stage study --spend-cap-usd <cap>
 
 # Fit, then commit the prediction.
