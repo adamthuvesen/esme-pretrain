@@ -13,11 +13,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from esme_pretrain.modeling.backbone import BackboneConfig
 from esme_pretrain.pretrain_config import parse_run_config
-from esme_pretrain.study.data_paths import relative_volume_path
+from esme_pretrain.study.data_paths import StudyData, StudySettings, relative_volume_path
 from esme_pretrain.training.runtime import wsd_decay_start
 
 STAGES = ("smoke", "lr-gate", "study")
@@ -67,10 +67,6 @@ class StudyArm:
         return sum(run.flops for run in self.runs)
 
 
-class StudySettings(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
-
-
 PositiveInt = Annotated[int, Field(gt=0)]
 PositiveFloat = Annotated[float, Field(gt=0)]
 Stage = Literal["smoke", "lr-gate", "study"]
@@ -85,19 +81,6 @@ class StudyOptimizer(StudySettings):
     grad_clip: PositiveFloat
     micro_batch_size: PositiveInt
     grad_accum_steps: PositiveInt
-
-
-class StudyData(StudySettings):
-    volume: str
-    train_manifest: str
-    validation_manifest: str
-    tokenizer: str
-    shuffle_seed: int
-
-    @field_validator("train_manifest", "validation_manifest", "tokenizer")
-    @classmethod
-    def safe_volume_path(cls, value: str) -> str:
-        return relative_volume_path(value)
 
 
 class StudyEval(StudySettings):

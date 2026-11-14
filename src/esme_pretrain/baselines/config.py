@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.launch.validators import expect_object, require_keys
+from esme_pretrain.artifacts.validators import expect_object, require_keys
 
 FINEWEB_SLICE_KIND = "fineweb_edu_validation"
 HF_DATASET_SLICE_KIND = "hf_dataset"

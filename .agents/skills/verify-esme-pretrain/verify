@@ -283,6 +283,7 @@ DRIVES = {
             "src/esme_pretrain/data/*",
             "src/esme_pretrain/torch.py",
             "src/esme_pretrain/launch/modal_pretrain_body.py",
+            "src/esme_pretrain/launch/local_rehearsal.py",
             "src/esme_pretrain/launch/modal_artifacts.py",
             "scripts/modal_pretrain.py",
             "src/esme_pretrain/pretrain_*.py",
@@ -294,6 +295,7 @@ DRIVES = {
         [
             "src/esme_pretrain/launch/modal_tokenizer.py",
             "src/esme_pretrain/launch/modal_pretrain_body.py",
+            "src/esme_pretrain/launch/local_rehearsal.py",
             "scripts/modal_pretrain.py",
         ],
         drive_tokenizer,

@@ -1,13 +1,11 @@
-"""Resolve study input files relative to the mounted study volume."""
+"""The study data config and its input files resolved inside the mounted study volume."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from esme_pretrain.study.plan import StudyData
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 def relative_volume_path(value: str) -> str:
@@ -24,6 +22,23 @@ def relative_volume_path(value: str) -> str:
             "Use a POSIX path without '..'."
         )
     return path.as_posix()
+
+
+class StudySettings(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
+
+
+class StudyData(StudySettings):
+    volume: str
+    train_manifest: str
+    validation_manifest: str
+    tokenizer: str
+    shuffle_seed: int
+
+    @field_validator("train_manifest", "validation_manifest", "tokenizer")
+    @classmethod
+    def safe_volume_path(cls, value: str) -> str:
+        return relative_volume_path(value)
 
 
 @dataclass(frozen=True)
