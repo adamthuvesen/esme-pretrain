@@ -42,6 +42,7 @@ If docs and code disagree, fix the stale doc in the same change.
 ## Gates
 
 ```bash
+make install  # sync the locked dev environment; run first in a fresh clone
 make check    # Ruff, strict basedpyright, import-linter, fast offline CPU tests; first CI job
 make fix      # ruff format and safe lint fixes
 make slow     # slow offline tests (statistical fits); second CI job

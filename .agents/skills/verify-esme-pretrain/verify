@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import socket
@@ -313,8 +314,11 @@ DRIVES = {
 SMOKE = "train"
 
 
+# Check lanes run beside a verify and write these.
+TOOL_CACHES = (".ruff_cache/", ".pytest_cache/", ".basedpyright/")
+
 # The control passes only when its drive fails on exactly this planted expectation.
-CONTROL_FAILURE = "expected final train loss < 1.0000, got "
+CONTROL_FAILURE = r"expected final train loss < 1\.0000, got \d+\.\d{4} \(first \d+\.\d{4}\)"
 
 
 def control(ctx: Context) -> str:
@@ -357,7 +361,7 @@ def checkout_state() -> dict[str, str]:
         path = entry[2:] if fields is None else entry.split(" ", fields)[fields]
         if kind == "2":
             next(entries)
-        if path.startswith(".verify/") or "__pycache__" in path.split("/"):
+        if path.startswith((".verify/", *TOOL_CACHES)) or "__pycache__" in path.split("/"):
             continue
         target = ROOT / path
         if kind == "!":
@@ -548,7 +552,7 @@ def main(argv: list[str]) -> int:
     print(f"evidence: {run_dir.relative_to(ROOT)}")
     if command == "control":
         failures = [str(r["detail"]) for r in results if r["result"] == "FAIL"]
-        if not changed and len(failures) == 1 and failures[0].startswith(CONTROL_FAILURE):
+        if not changed and len(failures) == 1 and re.fullmatch(CONTROL_FAILURE, failures[0]):
             print("control: FAIL observed")
             return 0
         if failures:

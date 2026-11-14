@@ -96,6 +96,8 @@ def _import_time_modal_calls(tree: ast.Module, label: str) -> list[str]:
 
 
 def _ungated_launches(source: str, label: str) -> list[str]:
+    if "modal" not in source.lower():
+        return []
     tree = ast.parse(source)
     problems = _import_time_modal_calls(tree, label)
     for fn in ast.walk(tree):

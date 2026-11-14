@@ -11,7 +11,7 @@ The fast lane (`make check`) proves the code is consistent. This skill proves be
 
 ```bash
 make verify                    # drives that cover files changed against main; the train drive when none match
-make verify ARGS=all           # every drive, about 10 seconds
+make verify ARGS=all           # every drive, about 6 to 14 seconds
 make verify ARGS="train tokenizer"
 make verify ARGS=list          # each drive, what it proves, and the paths it covers
 make verify ARGS=control       # re-runs train with a loss threshold it cannot reach; exits 0 only when FAIL is observed

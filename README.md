@@ -1,6 +1,6 @@
 # esme-pretrain
 
-![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.14%2B-blue)
 
 `esme-pretrain` trains a small language model from raw text and measures how
 its training recipe behaves as the model grows. It produced `Esme-214M-Base`,
