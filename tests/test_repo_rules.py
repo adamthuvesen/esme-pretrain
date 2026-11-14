@@ -62,6 +62,9 @@ def _rule_rows(agents: str) -> list[tuple[str, list[str]]]:
     assert cells and cells[0][:2] == ["Rule", "Enforced by"], (
         "AGENTS.md `## Enforced Rules` table must start with `| Rule | Enforced by |`"
     )
+    assert len(cells) > 1 and all(set(cell) <= set("-: ") and cell for cell in cells[1]), (
+        "AGENTS.md `## Enforced Rules` table needs a `| --- | --- |` row under its header"
+    )
     rows = cells[2:]
     assert rows, "AGENTS.md `## Enforced Rules` has no rows"
     return [(row[0], re.findall(r"`([^`]+)`", row[1] if len(row) > 1 else "")) for row in rows]
@@ -140,6 +143,7 @@ def test_the_checks_find_known_violations(tmp_path: Path) -> None:
     for broken in (
         "\n## Enforced Rules\n\n| Check | Enforced by |\n| --- | --- |\n| a | `make check` |\n",
         "\n## Enforced Rules\n\n| Rule | Enforced by |\n| --- | --- |\nprose\n| a | `make check` |\n",
+        "\n## Enforced Rules\n\n| Rule | Enforced by |\n| bad | `make nope` |\n| a | `make check` |\n",
     ):
         with pytest.raises(AssertionError):
             _rule_rows(broken)
@@ -162,9 +166,12 @@ BAN_OWNERS = {
 
 def _banned_uses(paths: list[str]) -> dict[str, set[str]]:
     ruff = str(Path(sys.executable).with_name("ruff"))
-    command = [ruff, "check", "--no-cache", "--exit-zero", "--select", "TID251"]
+    command = [ruff, "check", "--no-cache", "--exit-zero", "--config", "pyproject.toml"]
+    command += ["--select", "TID251"]
+    command += ["--config", "lint.per-file-ignores={}"]
+    command += ["--config", "lint.extend-per-file-ignores={}", "--output-format", "json"]
     report = subprocess.run(
-        [*command, "--config", "lint.per-file-ignores={}", "--output-format", "json", *paths],
+        [*command, *paths],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -179,11 +186,21 @@ def _banned_uses(paths: list[str]) -> dict[str, set[str]]:
     return uses
 
 
+def _lifts_bans(code: str) -> bool:
+    return code == "ALL" or "TID251".startswith(code)
+
+
 def test_ban_owners_use_only_the_bans_they_own() -> None:
-    ignores = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"][
+    lint = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]["ruff"][
         "lint"
-    ]["per-file-ignores"]
-    assert {path for path, codes in ignores.items() if "TID251" in codes} == set(BAN_OWNERS)
+    ]
+    ignores = [*lint.get("per-file-ignores", {}).items()]
+    ignores += lint.get("extend-per-file-ignores", {}).items()
+    owners = {path for path, codes in ignores if any(map(_lifts_bans, codes))}
+    assert "TID251" in lint["select"]
+    global_ignores = [*lint.get("ignore", []), *lint.get("extend-ignore", [])]
+    assert not [code for code in global_ignores if _lifts_bans(code)], "an ignore lifts the bans"
+    assert owners == set(BAN_OWNERS)
     extra = {
         path: sorted(used - BAN_OWNERS[path])
         for path, used in _banned_uses(sorted(BAN_OWNERS)).items()

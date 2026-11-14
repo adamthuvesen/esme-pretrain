@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOWNGRADE = re.compile(r"^\s*#\s*pyright:\s*(?!strict\s*$|ignore\b)\S")
 BAN_SUPPRESSION = re.compile(r"\bnoqa\b[^#\n]*\bTID251\b", re.IGNORECASE)
-INLINE_IGNORE = re.compile(r"#\s*(?:pyright:\s*ignore|noqa)\b")
+INLINE_IGNORE = re.compile(r"#\s*(?:pyright:\s*ignore|noqa)\b", re.IGNORECASE)
 EXPLAINED_IGNORE = re.compile(
     r"#\s*(?:pyright:\s*ignore\[\w+(?:,\s*\w+)*\]|noqa:\s*[A-Z]+\d+(?:,\s*[A-Z]+\d+)*)\s+#\s*\S"
 )
@@ -71,5 +71,11 @@ def test_the_patterns_find_each_downgrade_and_spare_rule_ignores() -> None:
     assert not BAN_SUPPRESSION.search(f"import torch  # {noqa}: E402")
     assert EXPLAINED_IGNORE.search(explained)
     assert EXPLAINED_IGNORE.search(f"import torch  # {noqa}: E402  # loads after the filter")
-    for bare in (f"x = 1  # {ignore}[reportAny]", f"x = 1  # {ignore}", f"x  # {noqa}: E402"):
+    upper = f"x  # {noqa.upper()}: F401"
+    for bare in (
+        f"x = 1  # {ignore}[reportAny]",
+        f"x = 1  # {ignore}",
+        f"x  # {noqa}: E402",
+        upper,
+    ):
         assert INLINE_IGNORE.search(bare) and not EXPLAINED_IGNORE.search(bare), bare

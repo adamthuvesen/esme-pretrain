@@ -68,9 +68,37 @@ def _approval_gate_line(fn: Function) -> int | None:
     return None
 
 
-def _ungated_launches(source: str, label: str) -> list[str]:
+def _module_level_nodes(tree: ast.Module) -> list[ast.AST]:
+    nodes: list[ast.AST] = []
+    pending: list[ast.AST] = list(tree.body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        nodes.append(node)
+        pending.extend(ast.iter_child_nodes(node))
+    return nodes
+
+
+def _import_time_modal_calls(tree: ast.Module, label: str) -> list[str]:
+    # Module code runs on import, before any gate. Only lazy constructors belong there.
     problems = []
-    for fn in ast.walk(ast.parse(source)):
+    for node in _module_level_nodes(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        root = node.func.value
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        starts_app = node.func.attr in {"run", "deploy"} and getattr(root, "id", "") == "app"
+        if node.func.attr in INVOKE_ATTRS or starts_app:
+            problems.append(f"{label}:{node.lineno} calls Modal at import, before any gate")
+    return problems
+
+
+def _ungated_launches(source: str, label: str) -> list[str]:
+    tree = ast.parse(source)
+    problems = _import_time_modal_calls(tree, label)
+    for fn in ast.walk(tree):
         if not isinstance(fn, Function) or _decorated(fn, "app.function"):
             continue
         where = f"{label}:{fn.name}"
@@ -134,6 +162,11 @@ def launch_generator(args):
 def launch_volume(args):
     study_volume.listdir("/")
 
+if modal is not None:
+    study_volume.listdir("/")
+    with app.run():
+        pass
+
 def launch_ok(args):
     if not require_approval(args.approved, run="x", command="x"):
         return 2
@@ -144,6 +177,8 @@ def launch_ok(args):
 
 def test_the_scan_finds_each_ungated_launch() -> None:
     assert _ungated_launches(UNGATED, "bad.py") == [
+        "bad.py:35 calls Modal at import, before any gate",
+        "bad.py:34 calls Modal at import, before any gate",
         "bad.py:launch_early calls Modal before `if not require_approval(...): return`",
         "bad.py:launch_writes_first writes state before `if not require_approval(...): return`",
         "bad.py:main: launch with python and `app.run()` after the gate",
