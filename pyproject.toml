@@ -69,43 +69,43 @@ ignore = ["E501"]
 ".agents/skills/verify-esme-pretrain/verify" = ["TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"subprocess".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"pty".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"asyncio.subprocess".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"asyncio.create_subprocess_exec".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"asyncio.create_subprocess_shell".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.system".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.popen".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.posix_spawn".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.posix_spawnp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execl".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execle".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execlp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execlpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execv".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execve".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execvp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.execvpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnl".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnle".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnlp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnlpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnv".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnve".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnvp".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"os.spawnvpe".msg = "Process calls belong to the launch owners, tests that drive git, and the verify script."
-"socket".msg = "Network clients have no owner module in this repo."
-"http.client".msg = "Network clients have no owner module in this repo."
-"urllib.request".msg = "Network clients have no owner module in this repo."
-"requests".msg = "Network clients have no owner module in this repo."
-"httpx".msg = "Network clients have no owner module in this repo."
-"aiohttp".msg = "Network clients have no owner module in this repo."
-"urllib3".msg = "Network clients have no owner module in this repo."
-"huggingface_hub".msg = "Network clients have no owner module in this repo."
-"ftplib".msg = "Network clients have no owner module in this repo."
-"asyncio.open_connection".msg = "Network clients have no owner module in this repo."
-"modal".msg = "Modal spends money: only the gated launchers in `launch/` and `scripts/modal_pretrain.py` import it."
-"wandb".msg = "W&B writes belong to `training/metrics.py`."
+"subprocess".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"pty".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"asyncio.subprocess".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"asyncio.create_subprocess_exec".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"asyncio.create_subprocess_shell".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.system".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.popen".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.posix_spawn".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.posix_spawnp".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execl".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execle".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execlp".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execlpe".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execv".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execve".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execvp".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.execvpe".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnl".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnle".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnlp".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnlpe".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnv".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnve".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnvp".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"os.spawnvpe".msg = "Run processes only in the files that pyproject.toml per-file-ignores lists for TID251, such as launch/modal_artifacts.py. Call a function there, or add the file to BAN_OWNERS in tests/test_repo_rules.py if it must own the call."
+"socket".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"http.client".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"urllib.request".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"requests".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"httpx".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"aiohttp".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"urllib3".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"huggingface_hub".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"ftplib".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"asyncio.open_connection".msg = "No module owns a raw network client. Load remote models and data through baselines/models.py or data/corpus_stream.py."
+"modal".msg = "Modal spends money. Call a gated launcher in launch/ (for example launch/scaling_study.py) or scripts/modal_pretrain.py; only those files import modal."
+"wandb".msg = "Log through esme_pretrain.training.metrics; only training/metrics.py imports wandb."
 
 [tool.ruff.format]
 quote-style = "double"
@@ -134,47 +134,23 @@ reportPrivateUsage = false
 root_package = "esme_pretrain"
 
 [[tool.importlinter.contracts]]
-name = "Study owns its protocol without CLI, launch, or post-run dependencies"
-type = "forbidden"
-source_modules = ["esme_pretrain.study"]
-forbidden_modules = ["esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun"]
-
-[[tool.importlinter.contracts]]
-name = "Launch must not depend on CLI policy"
-type = "forbidden"
-source_modules = ["esme_pretrain.launch"]
-forbidden_modules = ["esme_pretrain.cli"]
-
-[[tool.importlinter.contracts]]
-name = "Artifact and data domains do not depend on operations"
-type = "forbidden"
-source_modules = [
-  "esme_pretrain.artifacts",
-  "esme_pretrain.data",
-]
-forbidden_modules = [
-  "esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun",
-  "esme_pretrain.baselines", "esme_pretrain.study", "esme_pretrain.training",
-  "esme_pretrain.pretrain_run", "esme_pretrain.pretrain_config",
+name = "esme_pretrain modules import only lower layers in the pyproject.toml layers list; move shared code down a layer"
+type = "layers"
+containers = ["esme_pretrain"]
+exhaustive = true
+layers = [
+  "__main__",
+  "cli",
+  "baselines",
+  "launch | postrun",
+  "study | pretrain_run",
+  "training | pretrain_config",
+  "data | modeling",
+  "artifacts | torch | status",
 ]
 
 [[tool.importlinter.contracts]]
-name = "Modeling and torch are independent of data and operations"
+name = "esme_pretrain.modeling must not import esme_pretrain.artifacts; let the caller pass artifact data in"
 type = "forbidden"
-source_modules = ["esme_pretrain.modeling", "esme_pretrain.torch"]
-forbidden_modules = [
-  "esme_pretrain.artifacts", "esme_pretrain.data", "esme_pretrain.training",
-  "esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun",
-  "esme_pretrain.baselines", "esme_pretrain.study",
-  "esme_pretrain.pretrain_run", "esme_pretrain.pretrain_config",
-]
-
-[[tool.importlinter.contracts]]
-name = "Training does not depend on operation policy"
-type = "forbidden"
-source_modules = ["esme_pretrain.training"]
-forbidden_modules = [
-  "esme_pretrain.cli", "esme_pretrain.launch", "esme_pretrain.postrun",
-  "esme_pretrain.baselines", "esme_pretrain.study",
-  "esme_pretrain.pretrain_run", "esme_pretrain.pretrain_config",
-]
+source_modules = ["esme_pretrain.modeling"]
+forbidden_modules = ["esme_pretrain.artifacts"]

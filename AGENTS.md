@@ -17,6 +17,8 @@ base-model pretraining from raw text through checkpoint eval and export.
 
 If docs and code disagree, fix the stale doc in the same change.
 
+Domain terms are in `GLOSSARY.md` and decisions in `docs/adr/`. A change that adds, renames, or redefines a term, or reverses a decision, updates them in the same commit.
+
 ## Workflow
 
 - Use `uv run ...` for project commands. Run `make check` before you commit.
@@ -60,12 +62,12 @@ Prove changes with `make verify` (`verify-esme-pretrain` skill at `.agents/skill
 | Every corpus recipe has a data audit run card before any run reads it | `src/esme_pretrain/data/corpus_config.py`, `tests/test_pretrain_214m_b200.py::test_pretrain_config_rejects_unpinned_dataset_revision`, `tests/test_repo_rules.py::test_every_audited_corpus_recipe_cites_an_existing_run_card` |
 | A pretrain run card stays within the $100 absolute spend cap, with no retries | `src/esme_pretrain/pretrain_config.py`, `tests/test_pretrain_214m_b200.py::test_run_card_schema_enforces_the_spend_cap` |
 | Paid launchers refuse without the approval flag and a cap that covers the worst case | `src/esme_pretrain/launch/budget.py`, `tests/test_launch_approval.py::test_every_paid_launch_asks_for_approval_before_modal`, `tests/test_scaling_study.py::test_study_stage_refuses_a_spend_cap_below_its_worst_case` |
-| Study owns its protocol without CLI, launch, or post-run imports | `make imports`, `pyproject.toml::Study owns its protocol without CLI, launch, or post-run dependencies` |
-| Launch never imports CLI policy | `make imports`, `pyproject.toml::Launch must not depend on CLI policy` |
-| Keep modeling independent, and keep data and training below operation policy | `make imports`, `pyproject.toml::Modeling and torch are independent of data and operations`, `pyproject.toml::Artifact and data domains do not depend on operations`, `pyproject.toml::Training does not depend on operation policy` |
+| Each module imports only lower layers: `cli` > `baselines` > `launch`/`postrun` > `study`/`pretrain_run` > `training`/`pretrain_config` > `data`/`modeling` > `artifacts`/`torch`/`status` | `make imports`, `pyproject.toml::esme_pretrain modules import only lower layers in the pyproject.toml layers list; move shared code down a layer` |
+| Modeling never imports artifacts | `make imports`, `pyproject.toml::esme_pretrain.modeling must not import esme_pretrain.artifacts; let the caller pass artifact data in` |
 | Fit complete planned arms with matching run and evaluation identities | `src/esme_pretrain/study/results.py`, `tests/test_study_results.py::test_partial_rows_cannot_declare_themselves_complete`, `tests/test_study_results.py::test_fit_refuses_incomparable_evaluation_identity` |
 | Apply the registered LR gate only to complete, finite, comparable evidence | `src/esme_pretrain/study/lr_gate.py`, `tests/test_study_evidence.py::test_lr_gate_rejects_invalid_evidence` |
 | Use validated study rows for heldout predictions | `src/esme_pretrain/study/prediction.py`, `tests/test_study_evidence.py::test_heldout_requires_matching_evidence` |
 | Keep run outputs, checkpoints, data, W&B state, and `.env*` out of git | `.gitignore`, `tests/test_repo_rules.py::test_no_run_outputs_or_data_are_tracked` |
 | The verify drives must observe FAIL against a wrong expectation | `.agents/skills/verify-esme-pretrain/verify::control`, `make verify` |
 | Process calls, network clients, Modal, and W&B stay in their named owner files | `make lint`, `pyproject.toml::[tool.ruff.lint.flake8-tidy-imports.banned-api]`, `pyproject.toml::[tool.ruff.lint.per-file-ignores]`, `tests/test_repo_rules.py::test_ban_owners_use_only_the_bans_they_own` |
+| Tests never sleep or time wall-clock work, and every skip or xfail names a reason | `tests/ruff.toml::[lint.flake8-tidy-imports.banned-api]`, `tests/test_strict_mode.py::test_every_skip_names_a_reason` |

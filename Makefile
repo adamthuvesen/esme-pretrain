@@ -6,10 +6,10 @@ install:  ## Sync the dev environment
 
 fix:  ## Apply every auto-fixer: ruff format and safe lint fixes
 	uv run --locked ruff format --config pyproject.toml . .agents/skills/verify-esme-pretrain/verify
-	uv run --locked ruff check --fix --config pyproject.toml . .agents/skills/verify-esme-pretrain/verify
+	uv run --locked ruff check --fix . .agents/skills/verify-esme-pretrain/verify
 
 lint:  ## Lint and format-check (no changes)
-	uv run --locked ruff check --config pyproject.toml . .agents/skills/verify-esme-pretrain/verify
+	uv run --locked ruff check . .agents/skills/verify-esme-pretrain/verify
 	uv run --locked ruff format --check --config pyproject.toml . .agents/skills/verify-esme-pretrain/verify
 
 types:  ## Strict type-check src, scripts, tests, and the verify entry script

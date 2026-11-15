@@ -106,7 +106,10 @@ def _table_problems(agents: str) -> list[str]:
 def test_enforced_rules_cite_real_checks() -> None:
     problems = _table_problems((ROOT / "AGENTS.md").read_text(encoding="utf-8"))
 
-    assert not problems, f"fix AGENTS.md Enforced Rules: {problems}"
+    assert not problems, (
+        "AGENTS.md Enforced Rules citations fail. Cite `path::name`, where the file defines the "
+        f"name: a def or class, a Makefile target, a `[table]` header, or a contract name: {problems}"
+    )
 
 
 def test_every_audited_corpus_recipe_cites_an_existing_run_card() -> None:

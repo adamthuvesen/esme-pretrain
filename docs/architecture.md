@@ -112,7 +112,9 @@ Dry runs and paid execution consume the same plan. `launch/budget.py` owns per-l
 `artifacts/hashes.py` and `data/token_bytes.py` provide shared hashing and byte accounting.
 `artifacts/validators.py` provides the strict JSON key checks for config files.
 `make check` type-checks every module under `src`, `scripts`, and `tests` with basedpyright strict, including new files.
-Five import contracts protect study, launch, data/artifacts, modeling/torch, and training ownership.
+An exhaustive layers contract holds each module to the layers below it, from top to bottom: `cli`, `baselines`,
+`launch` and `postrun`, `study` and `pretrain_run`, `training` and `pretrain_config`, `data` and `modeling`,
+then `artifacts`, `torch`, and `status`. A second contract keeps `modeling` free of `artifacts`.
 Modeling stays independent. Data and training cannot depend on operation policy.
 
 Study data paths are relative to the configured volume root.

@@ -91,7 +91,9 @@ def _import_time_modal_calls(tree: ast.Module, label: str) -> list[str]:
             root = root.value
         starts_app = node.func.attr in {"run", "deploy"} and getattr(root, "id", "") == "app"
         if node.func.attr in INVOKE_ATTRS or starts_app:
-            problems.append(f"{label}:{node.lineno} calls Modal at import, before any gate")
+            problems.append(
+                f"{label}:{node.lineno} calls Modal at import, before any gate; move it into a gated function"
+            )
     return problems
 
 
@@ -103,7 +105,7 @@ def _ungated_launches(source: str, label: str) -> list[str]:
     for fn in ast.walk(tree):
         if not isinstance(fn, Function) or _decorated(fn, "app.function"):
             continue
-        where = f"{label}:{fn.name}"
+        where = f"{label}:{fn.lineno} {fn.name}"
         if _decorated(fn, "local_entrypoint"):
             # `modal run` starts the app (image build, uploads, Volumes) before the
             # entrypoint runs, so no gate inside it comes first.
@@ -129,7 +131,10 @@ def test_every_paid_launch_asks_for_approval_before_modal() -> None:
         )
     ]
 
-    assert not problems, problems
+    assert not problems, (
+        "Paid launches must pass `if not require_approval(...): return` from launch/budget.py "
+        "before any Modal call or state write:\n  " + "\n  ".join(problems)
+    )
 
 
 UNGATED = """
@@ -179,15 +184,15 @@ def launch_ok(args):
 
 def test_the_scan_finds_each_ungated_launch() -> None:
     assert _ungated_launches(UNGATED, "bad.py") == [
-        "bad.py:35 calls Modal at import, before any gate",
-        "bad.py:34 calls Modal at import, before any gate",
-        "bad.py:launch_early calls Modal before `if not require_approval(...): return`",
-        "bad.py:launch_writes_first writes state before `if not require_approval(...): return`",
-        "bad.py:main: launch with python and `app.run()` after the gate",
-        "bad.py:launch_branch_gated calls Modal before `if not require_approval(...): return`",
-        "bad.py:launch_async calls Modal before `if not require_approval(...): return`",
-        "bad.py:launch_generator calls Modal before `if not require_approval(...): return`",
-        "bad.py:launch_volume calls Modal before `if not require_approval(...): return`",
+        "bad.py:35 calls Modal at import, before any gate; move it into a gated function",
+        "bad.py:34 calls Modal at import, before any gate; move it into a gated function",
+        "bad.py:2 launch_early calls Modal before `if not require_approval(...): return`",
+        "bad.py:7 launch_writes_first writes state before `if not require_approval(...): return`",
+        "bad.py:14 main: launch with python and `app.run()` after the gate",
+        "bad.py:17 launch_branch_gated calls Modal before `if not require_approval(...): return`",
+        "bad.py:23 launch_async calls Modal before `if not require_approval(...): return`",
+        "bad.py:26 launch_generator calls Modal before `if not require_approval(...): return`",
+        "bad.py:30 launch_volume calls Modal before `if not require_approval(...): return`",
     ]
 
 
