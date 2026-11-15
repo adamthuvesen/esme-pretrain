@@ -84,3 +84,23 @@ def test_images_install_locked_versions_through_uv() -> None:
         f"{pip_installs} install with pip. Use `uv_pip_install(*image_package_pins())` from "
         "launch/modal_image.py, so the image runs the uv.lock versions."
     )
+
+
+def test_modal_image_finds_metadata_from_modals_package_copy(tmp_path: Path) -> None:
+    # Modal copies the package to /root/esme_pretrain, one level shallower than /root/src.
+    import importlib.util
+
+    root = tmp_path / "root"
+    module_path = root / "esme_pretrain" / "launch" / "modal_image.py"
+    module_path.parent.mkdir(parents=True)
+    source = Path(__file__).resolve().parents[1] / "src/esme_pretrain/launch/modal_image.py"
+    module_path.write_text(source.read_text())
+    (root / ".python-version").write_text("3.14\n")
+    (root / "uv.lock").write_text('[[package]]\nname = "torch"\nversion = "2.12.1"\n')
+    spec = importlib.util.spec_from_file_location("modal_image_copy", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert root.resolve() == module.REPO_ROOT
+    assert module.LOCAL_PYTHON == "3.14"
+    assert module.locked_version("torch") == "2.12.1"

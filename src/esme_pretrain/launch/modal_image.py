@@ -7,8 +7,23 @@ from pathlib import Path
 from typing import Any
 
 REPO_SRC_MOUNT = "/root/src"
-# parents[3] is the repo root locally and /root in the container, where the files are mounted.
-REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _metadata_root() -> Path:
+    """The nearest ancestor holding .python-version.
+
+    Locally that is the repo root. In a Modal container it is /root, where the image
+    mounts .python-version and uv.lock, whether this module runs from the /root/src mount
+    or from Modal's automatic /root/esme_pretrain copy, which a fixed parents[n] gets wrong.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / ".python-version").is_file():
+            return parent
+    raise FileNotFoundError(f"no .python-version above {here}; the image mounts it at /root")
+
+
+REPO_ROOT = _metadata_root()
 PYTHON_VERSION_FILE = REPO_ROOT / ".python-version"
 UV_LOCK_FILE = REPO_ROOT / "uv.lock"
 LOCAL_PYTHON = PYTHON_VERSION_FILE.read_text(encoding="utf-8").strip()
