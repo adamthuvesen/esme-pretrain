@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from esme_pretrain.artifacts.hashes import file_sha256
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone
-from esme_pretrain.postrun.eval_checkpoints import file_sha256
 from esme_pretrain.postrun.export_bundle import BUNDLE_SCHEMA_VERSION, CANONICAL_BUNDLE_FORMAT
 from esme_pretrain.torch import torch
 

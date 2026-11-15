@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -16,11 +17,11 @@ from esme_pretrain.baselines.config import (
 REPO_CONFIG = Path(__file__).resolve().parents[1] / "configs" / "baseline_eval.json"
 
 
-def _valid_payload() -> dict:
+def _valid_payload() -> dict[str, Any]:
     return json.loads(REPO_CONFIG.read_text(encoding="utf-8"))
 
 
-def _write(tmp_path: Path, payload: dict) -> Path:
+def _write(tmp_path: Path, payload: dict[str, Any]) -> Path:
     path = tmp_path / "baseline_eval.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -89,7 +90,7 @@ def test_gate_model_must_exist(tmp_path: Path) -> None:
     payload = _valid_payload()
     payload["gate"]["model"] = "gpt5"
 
-    with pytest.raises(ValueError, match="gate.model is not a configured model"):
+    with pytest.raises(ValueError, match=r"gate.model is not a configured model"):
         load_baseline_eval_config(_write(tmp_path, payload))
 
 
@@ -113,7 +114,7 @@ def test_slice_extra_key_rejected(tmp_path: Path) -> None:
     payload = _valid_payload()
     payload["text_slices"]["pile_test"]["cache_dir"] = "/tmp"
 
-    with pytest.raises(ValueError, match="text_slices.pile_test has unsupported keys"):
+    with pytest.raises(ValueError, match=r"text_slices.pile_test has unsupported keys"):
         load_baseline_eval_config(_write(tmp_path, payload))
 
 

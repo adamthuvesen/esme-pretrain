@@ -27,12 +27,13 @@ and then score the base checkpoint with the `heldout` stage.
 - Dry runs never download data or start Modal.
 - Run outputs, checkpoints, exports, W&B state, and `.env*` files stay out of git.
 
+Study fitting requires complete result rows with matching run and fixed evaluation identities.
+Use `scaling-fit --results-dir` for heldout predictions. `--points` supports exploratory fits only.
+
 ## Checks
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
+make check
 uv run esme-pretrain status --json
 uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
 ```

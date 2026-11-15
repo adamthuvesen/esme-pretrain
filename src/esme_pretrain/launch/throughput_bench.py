@@ -22,9 +22,12 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.launch.gpu_smoke import _check_spend_cap, _reserved_cost_usd
+from pydantic import BaseModel, ConfigDict, Field
+
+from esme_pretrain.launch.budget import LaunchBudget, approved_command, require_approval
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
+from esme_pretrain.pretrain_config import PretrainRunConfig
 from esme_pretrain.pretrain_run import load_pretrain_config
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -53,6 +56,17 @@ VARIANTS: tuple[tuple[str, str, str], ...] = (
 )
 SOURCE_TREES = {"before": "/root/src_before", "after": "/root/src"}
 
+
+class BenchmarkLaunchPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    config: PretrainRunConfig
+    budget: LaunchBudget
+    before_commit: str
+    warmup_steps: int = Field(ge=0)
+    measure_steps: int = Field(gt=0)
+    variants: tuple[tuple[str, str, str], ...] = VARIANTS
+
+
 try:
     import modal
 except ImportError:  # pragma: no cover - Modal is supplied by the dev extra.
@@ -71,8 +85,8 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
     bench_volume = modal.Volume.from_name(BENCH_VOLUME)
 
     @app.function(gpu=BENCH_GPU, timeout=BENCH_TIMEOUT_SECONDS, volumes={"/bench": bench_volume})
-    def run_bench(config_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
-        return run_bench_body(config_payload, params, commit_results=bench_volume.commit)
+    def run_bench(plan_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+        return run_bench_body(plan_payload, params, commit_results=bench_volume.commit)
 
 
 def launch(argv: list[str] | None = None) -> int:
@@ -95,34 +109,41 @@ def launch(argv: list[str] | None = None) -> int:
         if args.warmup_steps < 1 or args.measure_steps < 5:
             raise ValueError("--warmup-steps must be >= 1 and --measure-steps >= 5")
         config = load_pretrain_config(args.config)
-        profile = config.payload["runtime"]["gpu_profiles"][BENCH_GPU]
-        worst_case_cost = _reserved_cost_usd(
-            timeout_seconds=BENCH_TIMEOUT_SECONDS, usd_per_hour=float(profile["usd_per_hour"])
-        )
-        _check_spend_cap(worst_case_cost, args.spend_cap_usd)
         before_commit = _resolve_commit(args.before_commit)
+        launch_plan = BenchmarkLaunchPlan(
+            config=config.config,
+            budget=LaunchBudget(
+                BENCH_GPU,
+                BENCH_TIMEOUT_SECONDS,
+                config.config.runtime.gpu_profiles[BENCH_GPU].usd_per_hour,
+                args.spend_cap_usd,
+            ),
+            before_commit=before_commit,
+            warmup_steps=args.warmup_steps,
+            measure_steps=args.measure_steps,
+        )
     except (ValueError, KeyError) as error:
         print(f"throughput bench refused: {error}", file=sys.stderr)
         return 2
 
-    plan = {
+    plan: dict[str, Any] = {
         "gpu": BENCH_GPU,
         "before_commit": before_commit,
         "after_commit": local_git_commit(REPO_ROOT),
         "after_dirty": local_git_dirty(REPO_ROOT),
         "variants": [variant for variant, _tree, _data in VARIANTS],
-        "warmup_steps": args.warmup_steps,
-        "measure_steps": args.measure_steps,
+        "warmup_steps": launch_plan.warmup_steps,
+        "measure_steps": launch_plan.measure_steps,
         "timeout_hours": BENCH_TIMEOUT_SECONDS / 3600,
-        "worst_case_cost_usd": worst_case_cost,
+        "worst_case_cost_usd": round(launch_plan.budget.worst_case_cost_usd, 4),
         "spend_cap_usd": args.spend_cap_usd,
         "volume": BENCH_VOLUME,
     }
     if args.check_only:
         print(json.dumps({"status": "check_ok", **plan}, indent=2, sort_keys=True))
         return 0
-    if not args.approved:
-        print("throughput bench refused: pass --approved to rent the GPU", file=sys.stderr)
+    command = approved_command("scripts/modal_throughput_bench.py", argv)
+    if not require_approval(args.approved, run="throughput bench", command=command):
         return 2
     if plan["after_dirty"]:
         print("throughput bench refused: commit the working tree first", file=sys.stderr)
@@ -137,8 +158,8 @@ def launch(argv: list[str] | None = None) -> int:
     run_id = f"{plan['after_commit'][:7]}-{time.strftime('%Y%m%dT%H%M%S')}"
     params = {
         "run_id": run_id,
-        "warmup_steps": args.warmup_steps,
-        "measure_steps": args.measure_steps,
+        "warmup_steps": launch_plan.warmup_steps,
+        "measure_steps": launch_plan.measure_steps,
     }
     print(
         f"throughput bench: run {run_id}; each variant's row is committed to "
@@ -149,14 +170,14 @@ def launch(argv: list[str] | None = None) -> int:
     # Detached: a client disconnect does not stop the paid run, and the rows on the
     # volume survive it.
     with modal.enable_output(), app.run(detach=True):
-        result = run_bench.remote(config.payload, params)
-    result = {**plan, **result, "client_wall_seconds": time.perf_counter() - wall_start}
+        remote_result = run_bench.remote(launch_plan.model_dump(mode="json", by_alias=True), params)
+    result = {**plan, **remote_result, "client_wall_seconds": time.perf_counter() - wall_start}
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     output_path = args.output_dir / f"throughput-bench-{plan['after_commit'][:7]}.json"
     output_path.write_text(json.dumps(result, indent=2, sort_keys=True), encoding="utf-8")
     print(json.dumps({**result, "local_output_path": str(output_path)}, indent=2, sort_keys=True))
-    failed = [row["variant"] for row in result["variants_run"] if row["status"] != "ok"]
+    failed = [row["variant"] for row in remote_result["variants_run"] if row["status"] != "ok"]
     if failed:
         print(f"throughput bench: variants did not complete: {failed}", file=sys.stderr)
         return 1
@@ -186,16 +207,27 @@ def _extract_source_tree(commit: str, destination: Path) -> None:
 
 
 def run_bench_body(
-    config_payload: dict[str, Any], params: dict[str, Any], *, commit_results: Any
+    plan_payload: dict[str, Any], params: dict[str, Any], *, commit_results: Any
 ) -> dict[str, Any]:
+    plan = BenchmarkLaunchPlan.model_validate_json(json.dumps(plan_payload))
     started = time.perf_counter()
     config_path = Path("/tmp/bench-config.json")
-    config_path.write_text(json.dumps(config_payload), encoding="utf-8")
+    config_path.write_text(plan.config.model_dump_json(by_alias=True), encoding="utf-8")
     results_dir = RESULTS_ROOT / params["run_id"]
     results_dir.mkdir(parents=True, exist_ok=False)
     rows = []
-    for variant, tree, data in VARIANTS:
-        row = _run_variant(variant, tree, data, config_path=config_path, params=params)
+    for variant, tree, data in plan.variants:
+        row = _run_variant(
+            variant,
+            tree,
+            data,
+            config_path=config_path,
+            params={
+                **params,
+                "warmup_steps": plan.warmup_steps,
+                "measure_steps": plan.measure_steps,
+            },
+        )
         (results_dir / f"{variant}.json").write_text(
             json.dumps(row, indent=2, sort_keys=True), encoding="utf-8"
         )

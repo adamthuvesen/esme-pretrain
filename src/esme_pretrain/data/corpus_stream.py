@@ -3,20 +3,30 @@
 from __future__ import annotations
 
 import importlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Generator, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
+from esme_pretrain.data.corpus_config import DatasetConfig, DocumentSplitConfig
 from esme_pretrain.data.document_split import select_documents
 
 
+class SupportsCorpusSettings(Protocol):
+    @property
+    def dataset(self) -> DatasetConfig: ...
+
+    @property
+    def split(self) -> DocumentSplitConfig: ...
+
+
 class SupportsCorpusConfig(Protocol):
-    payload: dict[str, Any]
+    @property
+    def config(self) -> SupportsCorpusSettings: ...
 
 
 def document_text_stream(
     config: SupportsCorpusConfig, *, split: str, parquet_files: Sequence[Path] = ()
-) -> Iterator[str]:
+) -> Generator[str]:
     """Load the configured dataset stream and yield texts for the requested split.
 
     ``parquet_files`` reads local copies of the configured subset's parquet files
@@ -32,7 +42,7 @@ def document_text_stream(
             "tests use synthetic fixtures and do not need it"
         ) from error
 
-    dataset_cfg = config.payload["dataset"]
+    dataset_cfg = config.config.dataset
     if parquet_files:
         missing = [str(path) for path in parquet_files if not path.exists()]
         if missing:
@@ -45,12 +55,15 @@ def document_text_stream(
         )
     else:
         stream = datasets.load_dataset(
-            dataset_cfg["source"],
-            name=dataset_cfg["subset"],
-            split=dataset_cfg["split"],
-            streaming=dataset_cfg["streaming"],
-            revision=dataset_cfg["revision"],
+            dataset_cfg.source,
+            name=dataset_cfg.subset,
+            split=dataset_cfg.split,
+            streaming=dataset_cfg.streaming,
+            revision=dataset_cfg.revision,
         )
     yield from select_documents(
-        stream, dataset_cfg=dataset_cfg, split_cfg=config.payload["split"], split=split
+        stream,
+        dataset_cfg=dataset_cfg.model_dump(mode="json"),
+        split_cfg=config.config.split.model_dump(mode="json"),
+        split=split,
     )

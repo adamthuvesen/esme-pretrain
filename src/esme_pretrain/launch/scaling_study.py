@@ -15,25 +15,44 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shutil
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from esme_pretrain.launch.gpu_smoke import _check_spend_cap
+from pydantic import BaseModel, ConfigDict
+
+from esme_pretrain.data.token_shards import load_token_shard_manifest
+from esme_pretrain.launch.budget import (
+    LaunchBudget,
+    approved_command,
+    check_spend_cap,
+    require_approval,
+)
 from esme_pretrain.launch.modal_artifacts import local_git_commit, local_git_dirty
 from esme_pretrain.launch.modal_image import build_pretrain_modal_image
-from esme_pretrain.modeling.backbone import BackboneConfig
+from esme_pretrain.pretrain_config import PretrainRunConfig
+from esme_pretrain.pretrain_run import load_pretrain_config
+from esme_pretrain.study.data_paths import StudyDataPaths, resolve_study_data
+from esme_pretrain.study.lr_gate import check_lr_gate
 from esme_pretrain.study.plan import (
     StudyArm,
+    StudyConfig,
     StudyPlan,
-    load_study_plan,
-    study_plan_from_payloads,
+    load_study_config,
+    study_plan,
 )
+from esme_pretrain.study.prediction import (
+    PredictionReference,
+    written_prediction,
+)
+from esme_pretrain.study.results import StudyProvenance
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STUDY_GPU = "B200"
@@ -43,16 +62,99 @@ MAX_ARM_TIMEOUT_SECONDS = 5 * 3600
 ARM_TIMEOUT_SLACK_SECONDS = 20 * 60
 # Leaves room under the shared account's GPU quota for other work.
 MAX_CONCURRENT_ARMS = 4
-LR_GATE_RESULTS = (
-    REPO_ROOT / "docs/results/scaling-study/lr-gate.json",
-    REPO_ROOT / "docs/results/scaling-study/lr-sweep.json",
-    REPO_ROOT / "docs/results/scaling-study/lr-sweep-extension.json",
-)
-# The run card's pre-registered stop rule for the LR gate, applied per shape.
-LR_GATE_MAX_GAP_NATS = 0.02
 ARM_BUDGET_EXCEEDED_EXIT = 3
 HELDOUT_TIMEOUT_SECONDS = 30 * 60
 DEFAULT_OUTPUT_DIR = Path("runs/scaling-study")
+
+
+class PlannedStudyArm(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    arm: StudyArm
+    budget: LaunchBudget
+
+
+class StudyLaunchPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    study: StudyPlan
+    data_paths: StudyDataPaths
+    base: PretrainRunConfig
+    stage: str
+    arms: tuple[PlannedStudyArm, ...]
+    heldout_budget: LaunchBudget | None
+    prediction: PredictionReference | None
+    assumed_tflops: float
+    spend_cap_usd: float
+
+    @property
+    def worst_case_cost_usd(self) -> float:
+        return sum(work.budget.worst_case_cost_usd for work in self.arms) + (
+            self.heldout_budget.worst_case_cost_usd if self.heldout_budget is not None else 0
+        )
+
+
+def build_study_launch_plan(
+    config: StudyConfig,
+    base: PretrainRunConfig,
+    *,
+    stage: str,
+    names: tuple[str, ...],
+    assumed_tflops: float,
+    spend_cap_usd: float,
+    prediction_path: Path | None = None,
+) -> StudyLaunchPlan:
+    if not math.isfinite(assumed_tflops) or assumed_tflops <= 0:
+        raise ValueError("--assumed-tflops must be positive and finite")
+    if config.data.volume != STUDY_VOLUME:
+        raise ValueError(f"data.volume must be {STUDY_VOLUME}")
+    if config.heldout.volume != HELDOUT_VOLUME:
+        raise ValueError(f"heldout.volume must be {HELDOUT_VOLUME}")
+    plan = study_plan(config, base.model)
+    with_heldout = stage == "heldout"
+    if with_heldout and names:
+        raise ValueError("--arm cannot select runs in the heldout stage")
+    arms = () if with_heldout else plan.arms_for(stage, names)
+    if not with_heldout and not arms:
+        raise ValueError(f"stage {stage!r} has no arms")
+    if stage == "study":
+        check_lr_gate(arms, plan)
+    rate = base.runtime.gpu_profiles[STUDY_GPU].usd_per_hour
+    prediction = (
+        written_prediction(
+            prediction_path,
+            non_embedding_params=base.model.parameter_count()["non_embedding"],
+            tokens=plan.heldout.tokens,
+            plan=plan,
+        )
+        if with_heldout
+        else None
+    )
+    launch_plan = StudyLaunchPlan(
+        study=plan,
+        data_paths=resolve_study_data(plan.data, Path("/study")),
+        base=base,
+        stage=stage,
+        arms=tuple(
+            PlannedStudyArm(
+                arm=arm,
+                budget=LaunchBudget(
+                    STUDY_GPU,
+                    arm_timeout_seconds(arm, assumed_tflops=assumed_tflops),
+                    rate,
+                    spend_cap_usd,
+                ),
+            )
+            for arm in arms
+        ),
+        heldout_budget=LaunchBudget(STUDY_GPU, HELDOUT_TIMEOUT_SECONDS, rate, spend_cap_usd)
+        if with_heldout
+        else None,
+        prediction=prediction,
+        assumed_tflops=assumed_tflops,
+        spend_cap_usd=spend_cap_usd,
+    )
+    check_spend_cap(launch_plan.worst_case_cost_usd, spend_cap_usd)
+    return launch_plan
+
 
 try:
     import modal
@@ -74,24 +176,16 @@ if modal is not None:  # pragma: no cover - exercised on Modal, not in unit test
         # budget timer into the next arm.
         single_use_containers=True,
     )
-    def train_arm(
-        study_payload: dict[str, Any], base_payload: dict[str, Any], arm: str, params: dict
-    ) -> dict[str, Any]:
-        return train_arm_body(
-            study_payload, base_payload, arm, params, commit_results=study_volume.commit
-        )
+    def train_arm(plan_payload: dict[str, Any], arm: str, params: dict[str, Any]) -> dict[str, Any]:
+        return train_arm_body(plan_payload, arm, params, commit_results=study_volume.commit)
 
     @app.function(
         gpu=STUDY_GPU,
         timeout=HELDOUT_TIMEOUT_SECONDS,
         volumes={"/study": study_volume, "/accepted": heldout_volume},
     )
-    def eval_heldout(
-        study_payload: dict[str, Any], base_payload: dict[str, Any], params: dict
-    ) -> dict[str, Any]:
-        return eval_heldout_body(
-            study_payload, base_payload, params, commit_results=study_volume.commit
-        )
+    def eval_heldout(plan_payload: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+        return eval_heldout_body(plan_payload, params, commit_results=study_volume.commit)
 
 
 def arm_timeout_seconds(arm: StudyArm, *, assumed_tflops: float) -> int:
@@ -117,42 +211,29 @@ def launch(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        plan = load_study_plan(args.config)
-        if plan.data["volume"] != STUDY_VOLUME:
-            raise ValueError(f"config volume {plan.data['volume']!r} is not {STUDY_VOLUME!r}")
-        study_payload = json.loads(args.config.read_text(encoding="utf-8"))
-        base_payload = json.loads(Path(study_payload["base_config"]).read_text(encoding="utf-8"))
-        with_heldout = args.stage == "heldout"
-        if plan.heldout["volume"] != HELDOUT_VOLUME:
-            raise ValueError(f"heldout volume {plan.heldout['volume']!r} is not {HELDOUT_VOLUME!r}")
-        prediction = (
-            _written_prediction(
-                args.prediction,
-                non_embedding_params=BackboneConfig.from_dict(
-                    base_payload["model"]
-                ).parameter_count()["non_embedding"],
-                tokens=int(plan.heldout["tokens"]),
-                fit_points=_planned_fit_points(plan),
-            )
-            if with_heldout
-            else None
+        study_config = load_study_config(args.config)
+        base = load_pretrain_config(Path(study_config.base_config))
+        launch_plan = build_study_launch_plan(
+            study_config,
+            base.config,
+            stage=args.stage,
+            names=tuple(args.arm),
+            assumed_tflops=args.assumed_tflops,
+            spend_cap_usd=args.spend_cap_usd,
+            prediction_path=args.prediction,
         )
-        arms = () if with_heldout else plan.arms_for(args.stage, tuple(args.arm))
-        if args.stage == "study":
-            _check_lr_gate(arms, LR_GATE_RESULTS)
-        usd_per_hour = float(base_payload["runtime"]["gpu_profiles"][STUDY_GPU]["usd_per_hour"])
-        timeouts = {
-            arm.arm: arm_timeout_seconds(arm, assumed_tflops=args.assumed_tflops) for arm in arms
-        }
-        reserved_seconds = sum(timeouts.values()) + (HELDOUT_TIMEOUT_SECONDS if with_heldout else 0)
-        worst_case_cost = round(reserved_seconds / 3600 * usd_per_hour, 2)
-        _check_spend_cap(worst_case_cost, args.spend_cap_usd)
     except (ValueError, KeyError) as error:
         print(f"scaling study refused: {error}", file=sys.stderr)
         return 2
 
-    estimated_hours = sum(arm.flops for arm in arms) / (args.assumed_tflops * 1e12) / 3600
-    report = {
+    plan = launch_plan.study
+    arms = tuple(work.arm for work in launch_plan.arms)
+    timeouts = {work.arm.arm: work.budget.timeout_seconds for work in launch_plan.arms}
+    with_heldout = launch_plan.heldout_budget is not None
+    prediction = launch_plan.prediction.model_dump(mode="json") if launch_plan.prediction else None
+    usd_per_hour = launch_plan.base.runtime.gpu_profiles[STUDY_GPU].usd_per_hour
+    estimated_hours = sum(arm.flops for arm in arms) / (launch_plan.assumed_tflops * 1e12) / 3600
+    report: dict[str, Any] = {
         "stage": args.stage,
         "gpu": STUDY_GPU,
         "arms": [
@@ -169,7 +250,7 @@ def launch(argv: list[str] | None = None) -> int:
         "assumed_tflops": args.assumed_tflops,
         "estimated_gpu_hours": round(estimated_hours, 2),
         "estimated_cost_usd": round(estimated_hours * usd_per_hour, 2),
-        "worst_case_cost_usd": worst_case_cost,
+        "worst_case_cost_usd": round(launch_plan.worst_case_cost_usd, 2),
         "spend_cap_usd": args.spend_cap_usd,
         "max_concurrent": MAX_CONCURRENT_ARMS,
         "commit": local_git_commit(REPO_ROOT),
@@ -178,8 +259,8 @@ def launch(argv: list[str] | None = None) -> int:
     if args.check_only:
         print(json.dumps({"status": "check_ok", **report}, indent=2, sort_keys=True))
         return 0
-    if not args.approved:
-        print("scaling study refused: pass --approved to rent GPUs", file=sys.stderr)
+    command = approved_command("scripts/modal_scaling_study.py", argv)
+    if not require_approval(args.approved, run="scaling study", command=command):
         return 2
     if with_heldout and not _committed_in_head(args.prediction):
         print(
@@ -196,7 +277,7 @@ def launch(argv: list[str] | None = None) -> int:
         return 2
 
     if with_heldout:
-        checkpoint = plan.heldout["checkpoint"]
+        checkpoint = plan.heldout.checkpoint
         listed = {
             entry.path
             for entry in modal.Volume.from_name(HELDOUT_VOLUME).listdir(
@@ -211,7 +292,7 @@ def launch(argv: list[str] | None = None) -> int:
             return 2
 
     study_run_id = f"{args.stage}-{report['commit'][:7]}-{time.strftime('%Y%m%dT%H%M%S')}"
-    params = {"study_run_id": study_run_id, "commit": report["commit"], "prediction": prediction}
+    params = {"study_run_id": study_run_id, "commit": report["commit"]}
     print(
         f"scaling study: run {study_run_id}; rows are committed to "
         f"{STUDY_VOLUME}:/results/{study_run_id}/ as they finish",
@@ -224,15 +305,16 @@ def launch(argv: list[str] | None = None) -> int:
     with modal.enable_output(), app.run(detach=True):
         calls = {
             arm.arm: train_arm.spawn(
-                study_payload,
-                base_payload,
+                launch_plan.model_dump(mode="json", by_alias=True),
                 arm.arm,
-                {**params, "budget_seconds": timeouts[arm.arm]},
+                params,
             )
             for arm in sorted(arms, key=lambda arm: arm.flops, reverse=True)
         }
         if with_heldout:
-            calls["heldout"] = eval_heldout.spawn(study_payload, base_payload, params)
+            calls["heldout"] = eval_heldout.spawn(
+                launch_plan.model_dump(mode="json", by_alias=True), params
+            )
         print(
             "scaling study: spawned "
             + ", ".join(f"{name}={call.object_id}" for name, call in calls.items()),
@@ -241,7 +323,7 @@ def launch(argv: list[str] | None = None) -> int:
         for name, call in calls.items():
             try:
                 outcomes[name] = {"status": "ok", **call.get()}
-            except Exception as error:  # noqa: BLE001 - one arm's failure must not hide the rest
+            except Exception as error:  # one arm's failure must not hide the rest
                 outcomes[name] = {"status": "failed", "error": repr(error)[-2000:]}
 
     summary = {
@@ -261,41 +343,6 @@ def launch(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _check_lr_gate(arms: tuple[StudyArm, ...], gate_results: tuple[Path, ...]) -> None:
-    """Refuse study runs whose LR the LR-gate rows put past the stop rule.
-
-    Each run is judged against the gate rows of its own shape. A shape the gate
-    did not sweep uses the swept shape nearest in non-embedding params.
-    """
-    rows = []
-    for gate_result in gate_results:
-        if not gate_result.is_file():
-            raise ValueError(f"the study stage needs the LR-gate result: {gate_result}")
-        gate = json.loads(gate_result.read_text(encoding="utf-8"))
-        rows += [row for outcome in gate["outcomes"].values() for row in outcome["rows"]]
-    val_ce_by_shape: dict[str, dict[float, float]] = {}
-    params_by_shape: dict[str, int] = {}
-    for row in rows:
-        val_ce_by_shape.setdefault(row["shape"], {})[float(row["learning_rate"])] = float(
-            row["val_ce"]
-        )
-        params_by_shape[row["shape"]] = int(row["non_embedding_params"])
-    for arm in arms:
-        for run in arm.runs:
-            shape = min(
-                params_by_shape,
-                key=lambda swept: abs(params_by_shape[swept] - run.non_embedding_params),
-            )
-            val_ce_by_lr = val_ce_by_shape[shape]
-            gap = val_ce_by_lr.get(run.learning_rate, float("inf")) - min(val_ce_by_lr.values())
-            if gap > LR_GATE_MAX_GAP_NATS:
-                raise ValueError(
-                    f"{arm.arm}/{run.run}: LR {run.learning_rate:g} is {gap:.3f} nats worse "
-                    f"than the best {shape} LR-gate row; the stop rule is "
-                    f"{LR_GATE_MAX_GAP_NATS} nats, so the LR decision goes back to Adam"
-                )
-
-
 def _committed_in_head(path: Path) -> bool:
     """True when ``path`` is a tracked file whose HEAD blob matches its contents."""
     resolved = path.resolve()
@@ -307,66 +354,6 @@ def _committed_in_head(path: Path) -> bool:
         check=False,
     )
     return head_blob.returncode == 0 and head_blob.stdout == resolved.read_bytes()
-
-
-def _planned_fit_points(plan: StudyPlan) -> set[tuple[str, int, int]]:
-    """``(arm/run, N, D)`` of every run the pre-registered fit uses."""
-    fit_arms = plan.arms_for("study", tuple(plan.heldout["fit_arms"]))
-    return {
-        (f"{arm.arm}/{run.run}", run.non_embedding_params, run.tokens)
-        for arm in fit_arms
-        for run in arm.runs
-    }
-
-
-def _written_prediction(
-    path: Path | None,
-    *,
-    non_embedding_params: int,
-    tokens: int,
-    fit_points: set[tuple[str, int, int]],
-) -> dict[str, Any]:
-    """The fit's prediction, refused unless it is the pre-registered fit of the 214M point."""
-    if path is None or not path.is_file():
-        raise ValueError("the heldout stage needs --prediction, the written scaling-fit output")
-    from esme_pretrain.cli.study import (
-        BOOTSTRAP_INTERVAL,
-        PREREGISTERED_RESAMPLES,
-        PREREGISTERED_SEED,
-        fit_settings,
-    )
-    from esme_pretrain.postrun.eval_checkpoints import file_sha256
-
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    target = payload["prediction"]
-    if (target["non_embedding_params"], target["tokens"]) != (non_embedding_params, tokens):
-        raise ValueError(
-            f"{path} predicts N={target['non_embedding_params']}, D={target['tokens']}; "
-            f"the held-out point is N={non_embedding_params}, D={tokens}"
-        )
-    preregistered = json.loads(
-        json.dumps(fit_settings(resamples=PREREGISTERED_RESAMPLES, seed=PREREGISTERED_SEED))
-    )
-    if payload.get("settings") != preregistered or target["interval"] != BOOTSTRAP_INTERVAL:
-        raise ValueError(
-            f"{path} was not fit with the pre-registered settings: {preregistered}, "
-            f"interval {BOOTSTRAP_INTERVAL}"
-        )
-    written = [
-        (point["arm"], point["non_embedding_params"], point["tokens"])
-        for point in payload["points"]
-    ]
-    if len(written) != len(fit_points) or set(written) != fit_points:
-        missing = sorted(label for label, _, _ in fit_points - set(written))
-        raise ValueError(
-            f"{path} is not fit on the pre-registered {len(fit_points)} points; "
-            f"missing or changed: {missing}"
-        )
-    return {
-        "path": str(path),
-        "sha256": file_sha256(path),
-        "val_ce": float(payload["prediction"]["val_ce"]),
-    }
 
 
 def _stop_after(budget_seconds: int, arm_name: str) -> threading.Timer:
@@ -386,110 +373,140 @@ def _stop_after(budget_seconds: int, arm_name: str) -> threading.Timer:
     return timer
 
 
-def _stage_shards() -> Path:
-    shard_dir = Path("/tmp/shards")
-    if not shard_dir.exists():
-        # Shuffled windows are random reads; serve them from local disk, not the volume.
-        shutil.copytree("/study/shards", shard_dir)
-    return shard_dir
+def stage_study_data(paths: StudyDataPaths, local_root: Path) -> StudyDataPaths:
+    local_root = local_root.resolve()
+    files = {paths.tokenizer, paths.train_manifest, paths.validation_manifest}
+    for manifest_path in (paths.train_manifest, paths.validation_manifest):
+        manifest = load_token_shard_manifest(manifest_path)
+        files.update(shard.path for shard in manifest.shards)
+    for source in sorted(files):
+        resolved = source.resolve()
+        if not resolved.is_relative_to(paths.root):
+            raise ValueError(
+                f"study input {source} resolves outside {paths.root}: {resolved}. "
+                "Correct the configured path or shard manifest."
+            )
+        if not resolved.is_file():
+            raise ValueError(
+                f"study input {source} is not a file. "
+                "Restore the configured tokenizer, manifest, or shard."
+            )
+        relative = resolved.relative_to(paths.root)
+        destination = local_root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, destination)
+    return StudyDataPaths(
+        root=local_root,
+        tokenizer=local_root / paths.tokenizer.relative_to(paths.root),
+        train_manifest=local_root / paths.train_manifest.relative_to(paths.root),
+        validation_manifest=local_root / paths.validation_manifest.relative_to(paths.root),
+    )
 
 
-def _study_validation(plan: Any, shard_dir: Path, *, vocab_size: int, context_length: int):
-    from esme_pretrain.postrun.eval_checkpoints import file_sha256
+def _study_validation(
+    plan: StudyPlan, paths: StudyDataPaths, *, vocab_size: int, context_length: int
+):
     from esme_pretrain.study.arm_training import study_validation_batches
 
     return study_validation_batches(
         plan,
-        shard_dir=shard_dir,
-        tokenizer_sha256=file_sha256(Path("/study/tokenizer.json")),
+        data_paths=paths,
         vocab_size=vocab_size,
         context_length=context_length,
         device="cuda",
-        eval_token_budget=int(plan.eval["eval_token_budget"]),
-        expected_token_batch_sha256=plan.eval["expected_token_batch_sha256"],
     )
 
 
 def train_arm_body(
-    study_payload: dict[str, Any],
-    base_payload: dict[str, Any],
+    plan_payload: dict[str, Any],
     arm_name: str,
     params: dict[str, Any],
     *,
-    commit_results: Any,
+    commit_results: Callable[[], None],
 ) -> dict[str, Any]:
     import torch
 
     from esme_pretrain.study.arm_training import train_study_arm
 
-    budget_timer = _stop_after(params["budget_seconds"], arm_name)
-    plan = study_plan_from_payloads(study_payload, base_payload)
-    arm = next(arm for arm in plan.arms if arm.arm == arm_name)
+    launch_plan = StudyLaunchPlan.model_validate_json(json.dumps(plan_payload))
+    plan = launch_plan.study
+    work = next(work for work in launch_plan.arms if work.arm.arm == arm_name)
+    arm = work.arm
+    budget_timer = _stop_after(work.budget.timeout_seconds, arm_name)
     model = arm.runs[0].model
-    shard_dir = _stage_shards()
+    data_paths = stage_study_data(launch_plan.data_paths, Path("/tmp/study-inputs"))
     rows = train_study_arm(
         arm,
         plan,
-        shard_dir=shard_dir,
-        tokenizer_path=Path("/study/tokenizer.json"),
+        data_paths=data_paths,
         work_dir=Path("/tmp/work"),
         results_dir=Path("/study/results") / params["study_run_id"],
         validation_batches=_study_validation(
-            plan, shard_dir, vocab_size=model.vocab_size, context_length=model.context_length
+            plan, data_paths, vocab_size=model.vocab_size, context_length=model.context_length
         ),
         device="cuda",
         commit_results=commit_results,
-        provenance={
-            "study_run_id": params["study_run_id"],
-            "commit": params["commit"],
-            "gpu_name": torch.cuda.get_device_name(0),
-        },
+        provenance=StudyProvenance(
+            study_run_id=params["study_run_id"],
+            commit=params["commit"],
+            gpu_name=torch.cuda.get_device_name(0),
+        ),
     )
     budget_timer.cancel()
-    return {"arm": arm_name, "rows": rows}
+    return {
+        "arm": arm_name,
+        "rows": [row.model_dump(mode="json", exclude_unset=True) for row in rows],
+    }
 
 
 def eval_heldout_body(
-    study_payload: dict[str, Any],
-    base_payload: dict[str, Any],
+    plan_payload: dict[str, Any],
     params: dict[str, Any],
     *,
-    commit_results: Any,
+    commit_results: Callable[[], None],
 ) -> dict[str, Any]:
-    from esme_pretrain.postrun.eval_checkpoints import file_sha256
+    from esme_pretrain.artifacts.hashes import file_sha256
     from esme_pretrain.study.arm_training import validation_ce
     from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
     from esme_pretrain.training.eval_batch import hash_eval_batches
 
-    plan = study_plan_from_payloads(study_payload, base_payload)
-    checkpoint = Path("/accepted") / plan.heldout["checkpoint"]
+    launch_plan = StudyLaunchPlan.model_validate_json(json.dumps(plan_payload))
+    plan = launch_plan.study
+    checkpoint = Path("/accepted") / plan.heldout.checkpoint
     loaded = load_pretrain_checkpoint(checkpoint)
     model = loaded.model.config
-    if model != BackboneConfig.from_dict(base_payload["model"]):
+    if model != launch_plan.base.model:
         raise ValueError(f"{checkpoint} is not the base config's model: {model}")
-    training = base_payload["optimizer"]["training"]
-    tokens_per_step = training["micro_batch_size"] * training["grad_accum_steps"]
+    training = launch_plan.base.optimizer.training
+    tokens_per_step = training.micro_batch_size * training.grad_accum_steps
     trained_tokens = loaded.step * tokens_per_step * model.context_length
-    if trained_tokens != int(plan.heldout["tokens"]):
+    if trained_tokens != int(plan.heldout.tokens):
         raise ValueError(
             f"{checkpoint} stopped at step {loaded.step} ({trained_tokens} tokens); "
-            f"the held-out point is {plan.heldout['tokens']} tokens"
+            f"the held-out point is {plan.heldout.tokens} tokens"
         )
     batches = _study_validation(
-        plan, _stage_shards(), vocab_size=model.vocab_size, context_length=model.context_length
+        plan,
+        stage_study_data(launch_plan.data_paths, Path("/tmp/study-inputs")),
+        vocab_size=model.vocab_size,
+        context_length=model.context_length,
     )
     row = {
         "study_id": plan.study_id,
         "arm": "heldout-214m",
-        "checkpoint": plan.heldout["checkpoint"],
+        "checkpoint": plan.heldout.checkpoint,
         "checkpoint_sha256": file_sha256(checkpoint),
         "non_embedding_params": model.parameter_count()["non_embedding"],
-        "tokens": int(plan.heldout["tokens"]),
+        "tokens": int(plan.heldout.tokens),
         "val_ce": validation_ce(checkpoint, batches, device="cuda"),
         "val_token_batch_sha256": hash_eval_batches(batches),
+        "val_eval_tokens": sum(int(batch.input_ids.numel()) for batch in batches),
+        "val_eval_batches": len(batches),
         "study_run_id": params["study_run_id"],
         "commit": params["commit"],
-        "prediction": params["prediction"],
+        "prediction": launch_plan.prediction.model_dump(mode="json")
+        if launch_plan.prediction
+        else None,
     }
     results_dir = Path("/study/results") / params["study_run_id"]
     results_dir.mkdir(parents=True, exist_ok=True)

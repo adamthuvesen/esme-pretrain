@@ -1,0 +1,106 @@
+"""Modal images run the repository's Python unless a commented pin says otherwise.
+
+An image that mounts or imports repo source must read ``.python-version``. Source that
+uses newer syntax fails at container start when the image runs an older Python. A literal
+version is allowed only with a ``# modal-python-pin: <reason>`` comment and no repo source.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+VERSION_KEYWORDS = {"python_version", "add_python"}
+PIN_MARKER = "# modal-python-pin:"
+SOURCE_MARKERS = ("PYTHONPATH", '"src"', "repo_root_src")
+
+
+def python_version_violations(source: str, label: str) -> list[str]:
+    lines = source.splitlines()
+    tree = ast.parse(source)
+    statements = [node for node in ast.walk(tree) if isinstance(node, ast.stmt)]
+    problems: list[str] = []
+    for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):
+        for keyword in call.keywords:
+            if keyword.arg not in VERSION_KEYWORDS or not isinstance(keyword.value, ast.Constant):
+                continue
+            where = f"{label}:{keyword.value.lineno} {keyword.arg}={keyword.value.value!r}"
+            first = max(call.lineno - 2, 0)
+            nearby = lines[first : keyword.value.lineno]
+            if not any(PIN_MARKER in line for line in nearby):
+                problems.append(
+                    f"{where} is a literal. Read .python-version, or add "
+                    f"`{PIN_MARKER} <reason>` for an image that imports no repo source."
+                )
+                continue
+            enclosing = min(
+                (s for s in statements if s.lineno <= call.lineno <= (s.end_lineno or s.lineno)),
+                key=lambda s: (s.end_lineno or s.lineno) - s.lineno,
+            )
+            segment = "\n".join(lines[enclosing.lineno - 1 : enclosing.end_lineno])
+            if any(marker in segment for marker in SOURCE_MARKERS):
+                problems.append(
+                    f"{where} is pinned but the image also uses repo source. Remove the pin "
+                    "and read .python-version."
+                )
+    return problems
+
+
+def modal_python_files() -> list[Path]:
+    roots = [ROOT / "scripts", ROOT / "src", ROOT]
+    found = {p for r in roots for p in (r.rglob("*.py") if r != ROOT else r.glob("*.py"))}
+    return sorted(p for p in found if "modal" in p.read_text(encoding="utf-8"))
+
+
+def test_images_use_the_repository_python_version() -> None:
+    problems = [
+        problem
+        for path in modal_python_files()
+        for problem in python_version_violations(
+            path.read_text(encoding="utf-8"), str(path.relative_to(ROOT))
+        )
+    ]
+    assert not problems, "Modal images must use the .python-version Python:\n  " + "\n  ".join(
+        problems
+    )
+
+
+def test_the_check_flags_a_literal_version() -> None:
+    planted = 'image = modal.Image.debian_slim(python_version="3.13").env({"PYTHONPATH": "/x"})\n'
+    assert python_version_violations(planted, "planted.py")
+    pinned = f'{PIN_MARKER} legacy tool\nimage = modal.Image.debian_slim(python_version="3.13")\n'
+    assert not python_version_violations(pinned, "pinned.py")
+
+
+def test_images_install_locked_versions_through_uv() -> None:
+    pip_installs = [
+        str(path.relative_to(ROOT))
+        for path in modal_python_files()
+        if re.search(r"(?<!uv_)pip_install\(", path.read_text(encoding="utf-8"))
+    ]
+    assert not pip_installs, (
+        f"{pip_installs} install with pip. Use `uv_pip_install(*image_package_pins())` from "
+        "launch/modal_image.py, so the image runs the uv.lock versions."
+    )
+
+
+def test_modal_image_finds_metadata_from_modals_package_copy(tmp_path: Path) -> None:
+    # Modal copies the package to /root/esme_pretrain, one level shallower than /root/src.
+    import importlib.util
+
+    root = tmp_path / "root"
+    module_path = root / "esme_pretrain" / "launch" / "modal_image.py"
+    module_path.parent.mkdir(parents=True)
+    source = Path(__file__).resolve().parents[1] / "src/esme_pretrain/launch/modal_image.py"
+    module_path.write_text(source.read_text())
+    (root / ".python-version").write_text("3.14\n")
+    (root / "uv.lock").write_text('[[package]]\nname = "torch"\nversion = "2.12.1"\n')
+    spec = importlib.util.spec_from_file_location("modal_image_copy", module_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert root.resolve() == module.REPO_ROOT
+    assert module.LOCAL_PYTHON == "3.14"
+    assert module.locked_version("torch") == "2.12.1"

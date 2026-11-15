@@ -4,26 +4,20 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
-from esme_pretrain.study.scaling_law import (
-    DEFAULT_HUBER_DELTA,
-    POLISH_ITERATIONS,
-    POLISHED_CANDIDATES,
-    SCREEN_ITERATIONS,
-    LossPoint,
-    bootstrap_prediction,
-    initialization_grid,
+from esme_pretrain.cli.subparsers import Subparsers
+from esme_pretrain.study.plan import load_study_plan
+from esme_pretrain.study.prediction import (
+    BOOTSTRAP_INTERVAL,
+    PREREGISTERED_RESAMPLES,
+    PREREGISTERED_SEED,
+    fit_artifact,
 )
-
-BOOTSTRAP_INTERVAL = 0.9
-# The run card's pre-registered bootstrap.
-PREREGISTERED_RESAMPLES = 1000
-PREREGISTERED_SEED = 0
-LOSS_POINT_FIELDS = ("arm", "non_embedding_params", "tokens", "val_ce")
+from esme_pretrain.study.results import load_loss_points, load_study_fit_input
+from esme_pretrain.study.scaling_law import bootstrap_prediction
 
 
-def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
+def add_study_parsers(subparsers: Subparsers) -> None:
     scaling_fit = subparsers.add_parser(
         "scaling-fit",
         help="Fit the pre-registered scaling law and bootstrap one held-out prediction.",
@@ -34,6 +28,12 @@ def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
         "--results-dir",
         type=Path,
         help="Study results directory (<arm>/<run>.json rows); fit the --arm rows.",
+    )
+    scaling_fit.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/scaling_study.json"),
+        help="Study config that defines the planned result rows.",
     )
     scaling_fit.add_argument(
         "--arm", action="append", default=[], help="Arm to fit from --results-dir. Repeat."
@@ -69,10 +69,15 @@ def add_study_parsers(subparsers: argparse._SubParsersAction) -> None:
 
 def handle_scaling_fit(args: argparse.Namespace) -> int:
     try:
+        study_evidence = None
         if args.points is not None:
             points = load_loss_points(args.points)
         else:
-            points = load_study_loss_points(args.results_dir, tuple(args.arm))
+            study_input = load_study_fit_input(
+                args.results_dir, tuple(args.arm), load_study_plan(args.config)
+            )
+            points = list(study_input.points)
+            study_evidence = study_input.evidence
         bootstrap = bootstrap_prediction(
             points,
             non_embedding_params=args.predict_non_embedding_params,
@@ -82,31 +87,18 @@ def handle_scaling_fit(args: argparse.Namespace) -> int:
             interval=BOOTSTRAP_INTERVAL,
         )
     except ValueError as error:
-        print(f"scaling-fit failed: {error}", file=sys.stderr)
+        print(f"scaling-fit failed: {str(error).replace(chr(10), ' ')}", file=sys.stderr)
         return 2
     fit = bootstrap.fit
-    payload: dict[str, Any] = {
-        "points_path": str(args.points),
-        "point_count": len(points),
-        "points": [vars(point) for point in points],
-        "fit": {
-            "E": fit.E,
-            "A": fit.A,
-            "alpha": fit.alpha,
-            "B": fit.B,
-            "beta": fit.beta,
-            "objective": fit.objective,
-        },
-        "prediction": {
-            "non_embedding_params": args.predict_non_embedding_params,
-            "tokens": args.predict_tokens,
-            "val_ce": bootstrap.prediction,
-            "interval": bootstrap.interval,
-            "lower": bootstrap.lower,
-            "upper": bootstrap.upper,
-        },
-        "settings": fit_settings(resamples=bootstrap.resamples, seed=args.seed),
-    }
+    payload = fit_artifact(
+        points,
+        bootstrap,
+        non_embedding_params=args.predict_non_embedding_params,
+        tokens=args.predict_tokens,
+        points_path=str(args.points),
+        seed=args.seed,
+        study_evidence=study_evidence,
+    ).model_dump(mode="json")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     if args.json:
@@ -120,71 +112,3 @@ def handle_scaling_fit(args: argparse.Namespace) -> int:
             f"({bootstrap.interval:.0%} interval {bootstrap.lower:.4f} to {bootstrap.upper:.4f})"
         )
     return 0
-
-
-def fit_settings(*, resamples: int, seed: int) -> dict[str, Any]:
-    return {
-        "form": "L(N, D) = E + A / N^alpha + B / D^beta",
-        "huber_delta": DEFAULT_HUBER_DELTA,
-        "initialization_grid": initialization_grid(),
-        "screen_iterations": SCREEN_ITERATIONS,
-        "polished_candidates": POLISHED_CANDIDATES,
-        "polish_iterations": POLISH_ITERATIONS,
-        "resamples": resamples,
-        "seed": seed,
-    }
-
-
-def load_loss_points(path: Path) -> list[LossPoint]:
-    if not path.is_file():
-        raise ValueError(f"points file does not exist: {path}")
-    try:
-        records = json.loads(path.read_text())
-    except json.JSONDecodeError as error:
-        raise ValueError(f"points file is not valid JSON: {path}: {error}") from error
-    if not isinstance(records, list):
-        raise ValueError(f"points file must hold a JSON list: {path}")
-    points = []
-    for position, record in enumerate(records):
-        if not isinstance(record, dict) or set(record) != set(LOSS_POINT_FIELDS):
-            raise ValueError(
-                f"point {position} must be an object with exactly the fields "
-                f"{', '.join(LOSS_POINT_FIELDS)}"
-            )
-        points.append(LossPoint(**record))
-    return points
-
-
-def load_study_loss_points(results_dir: Path, arms: tuple[str, ...]) -> list[LossPoint]:
-    """One loss point per run row the study wrote under ``<results_dir>/<arm>/``.
-
-    An arm whose container stopped part way has some rows but not all; each row
-    names the arm's full run set, so a partial arm is refused, not fit.
-    """
-    if not arms:
-        raise ValueError("--results-dir needs at least one --arm")
-    points = []
-    for arm in arms:
-        rows = sorted((results_dir / arm).glob("*.json"))
-        if not rows:
-            raise ValueError(f"no result rows for arm {arm!r} in {results_dir / arm}")
-        arm_rows = [json.loads(row_path.read_text()) for row_path in rows]
-        for row_path, row in zip(rows, arm_rows, strict=True):
-            if row.get("arm") != arm:
-                raise ValueError(f"{row_path} belongs to arm {row.get('arm')!r}, not {arm!r}")
-            if "arm_runs" not in row:
-                raise ValueError(f"{row_path} has no arm_runs field to check the arm is complete")
-        written = sorted(row["run"] for row in arm_rows)
-        expected = sorted(arm_rows[0]["arm_runs"])
-        if written != expected:
-            raise ValueError(f"arm {arm!r} is incomplete: wrote runs {written}, planned {expected}")
-        for row in arm_rows:
-            points.append(
-                LossPoint(
-                    arm=f"{arm}/{row['run']}",
-                    non_embedding_params=int(row["non_embedding_params"]),
-                    tokens=int(row["tokens"]),
-                    val_ce=float(row["val_ce"]),
-                )
-            )
-    return points

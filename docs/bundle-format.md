@@ -48,6 +48,88 @@ The manifest also carries `llm_infer_config` (a consumer-friendly view of the
 architecture fields) and `run_metadata` (run summary, cost, and launch status
 JSONs found next to the source checkpoint).
 
+## Downstream Extension Fields
+
+`esme-pretrain` writes none of these fields. `esme-posttrain` adds them when it
+exports a post-trained bundle under the same `llm_pretrain_dense_v1` name, as
+the compatibility policy below allows. `llm-infer` reads them. This section
+records both sides as the code stands. The code is the authority; fix this
+section when it changes.
+
+Producer: `esme-posttrain` `export/bundle_writer.py::write_dense_bundle`. Its
+callers supply the stage fields: `export/dense_bundle.py::_stage_metadata` (the
+DPO chat bundle) and `rl/bundle.py::write_rlvr_bundle` (the RLVR bundle).
+`export/chat_template.py` owns the chat template object.
+
+Consumer: `llm-infer` `llm_infer/model/runtime.py::_load_bundle_runtime` and the
+`_dense_*` helpers it calls.
+
+| Field | Written by esme-posttrain | Read by llm-infer |
+| --- | --- | --- |
+| `model.id`, `model.name`, `model.stage` | Every bundle. `stage` is `"dpo"` or `"rlvr"`. esme-pretrain writes `model: {format, family}` instead. | `_dense_model_id`: the served model id is `model.id`, else `model.name`, else top-level `model_id`, else the bundle directory name. `stage` is not read. |
+| `chat_template` | DPO chat bundle only. The RLVR bundle omits it. | `_dense_chat_template`: top-level `chat_template`, else `tokenizer.chat_template`. It must be an object. |
+| `eos_token_ids` | Every bundle: the `<eos>` id. | `_dense_eos_ids`, see below. |
+| `decoding.eos_token_ids` | Every bundle: the same list as `eos_token_ids`. | `_dense_eos_ids`, see below. |
+| `decoding.default_add_special_tokens` | Every bundle: `false`. | Not read. |
+| `provenance` | Every bundle: training source, checkpoint hashes, run ids. Its keys differ by stage. | Not read. The runtime keeps the whole manifest as metadata. |
+
+### Chat bundles
+
+A bundle is a chat bundle when it has a `chat_template`. llm-infer requires:
+
+- `chat_template.roles`: an object that maps each role in a served conversation
+  to a pattern with one `{content}` placeholder. llm-infer renders each message
+  with its role pattern and joins the results with no separator.
+- `chat_template.generation_prompt`: a non-empty string, appended when a
+  request asks for a generation prompt.
+- EOS ids in `eos_token_ids` or `decoding.eos_token_ids`. Load fails when a chat
+  bundle has neither.
+
+Optional: `model`, `provenance`, and the `add_special_tokens` keys. llm-infer
+does not read the other `chat_template` keys that esme-posttrain writes (`id`,
+`format`, `example`).
+
+### Chat template versions
+
+The current template is `esme_newline_v2`. Its role patterns are
+`system\n{content}\n`, `user\n{content}\n`, and `assistant\n{content}<eos>`, and
+its generation prompt is `assistant\n`. Training ends each assistant turn with
+the `<eos>` token id. The v2 assistant pattern ends with the literal text
+`<eos>`, and llm-infer tokenizes the rendered text with
+`add_special_tokens: false`. Served history matches training only when the
+tokenizer encodes the text `<eos>` as the single `<eos>` id. That holds when
+`tokenizer.json` registers `<eos>` as a special token in `added_tokens`. The
+esme-pretrain tokenizer trainer registers `<pad>`, `<bos>`, `<eos>`, and
+`<unk>` that way (`launch/modal_tokenizer.py`). esme-posttrain export refuses a
+tokenizer that fails this check.
+
+`esme_newline_v1` bundles still load. Their assistant pattern is
+`assistant\n{content}\n`, so served history has a newline where training has
+`<eos>`. `esme-posttrain upgrade-chat-template --bundle-dir <dir>` rewrites a
+v1 bundle's `chat_template` to v2. It changes only `manifest.json`, which no
+`files.*.sha256` entry covers, so the bundle still verifies. `--dry-run`
+prints the diff and writes nothing.
+
+### EOS ids
+
+esme-posttrain writes the EOS list twice, at the top level and under
+`decoding`, with equal values. llm-infer reads both. When both are present,
+they must be equal lists of integers, or load fails. A non-empty list is the
+stop set. With no non-empty list, a chat bundle fails at load, and any other
+bundle uses the tokenizer's `<eos>` id. This is the case for an esme-pretrain
+base bundle. A bundle with no EOS list and no `<eos>` token fails at load.
+
+### add_special_tokens
+
+llm-infer reads `add_special_tokens` from three places and uses the first one
+that is set: `tokenizer.add_special_tokens`, then top-level
+`add_special_tokens`, then `chat_template.add_special_tokens`. The value must
+be a boolean. With none set, it uses `true`. esme-posttrain sets
+`chat_template.add_special_tokens: false` in the chat bundle. It also writes
+`decoding.default_add_special_tokens: false`, which llm-infer does not read. An
+RLVR bundle has no `chat_template`, so llm-infer encodes its prompts with
+`add_special_tokens: true`.
+
 ## config.json
 
 Exactly the `BackboneConfig` fields: `name`, `vocab_size`, `context_length`,

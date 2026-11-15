@@ -1,6 +1,6 @@
 # esme-pretrain
 
-![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![License](https://img.shields.io/github/license/adamthuvesen/esme-pretrain) ![Python](https://img.shields.io/badge/python-3.14%2B-blue)
 
 `esme-pretrain` trains a small language model from raw text and measures how
 its training recipe behaves as the model grows. It produced `Esme-214M-Base`,
@@ -127,25 +127,14 @@ conventions that matter when you compare runs.
 
 ## Quickstart
 
-Install the dev environment and the repo's git hooks:
+Install the dev environment:
 
 ```bash
 make install
 ```
 
-Run the checks:
-
-```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
-```
-
-Check the 214M training config without touching data or GPUs:
-
-```bash
-uv run esme-pretrain pretrain-214m-b200 --config configs/pretrain_214m_b200.json --dry-run --json
-```
+The check, verify, and no-spend dry-run commands live in the Gates section of
+[`AGENTS.md`](AGENTS.md).
 
 ## Commands
 

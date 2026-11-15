@@ -10,7 +10,7 @@ import contextlib
 import itertools
 import queue
 import threading
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -104,7 +104,7 @@ class StreamingBatchLoader:
         # is the stream offset a resume of this exact stream would need.
         self.tokens_yielded = 0
 
-    def __iter__(self) -> Iterator[Batch]:
+    def __iter__(self) -> Generator[Batch]:
         window = self.context_length + 1
         tokens_per_batch = window * self.batch_size
         skip_tokens = self.skip_tokens
@@ -139,7 +139,7 @@ def prefetch_device_batches(
     pin_memory: bool,
     prefetch_batches: int,
     thread_name: str,
-) -> Iterator[Batch]:
+) -> Generator[Batch]:
     """Build ``[batch, context + 1]`` CPU tensors on a background thread and yield them
     on ``device`` as :class:`Batch`.
 
@@ -148,8 +148,7 @@ def prefetch_device_batches(
     batches. A producer error is raised to the consumer after the batches before it.
     Closing the returned generator stops the producer and drains the queue.
     """
-    batch_queue: queue.Queue[torch.Tensor | object] = queue.Queue(maxsize=prefetch_batches)
-    sentinel = object()
+    batch_queue: queue.Queue[torch.Tensor | None] = queue.Queue(maxsize=prefetch_batches)
     error_box: list[BaseException] = []
     stop = threading.Event()
 
@@ -161,20 +160,19 @@ def prefetch_device_batches(
                 if pin_memory:
                     cpu_batch = cpu_batch.pin_memory()
                 batch_queue.put(cpu_batch)
-        except BaseException as error:  # noqa: BLE001 - surfaced to the consumer below
+        except BaseException as error:  # surfaced to the consumer below
             error_box.append(error)
         finally:
-            batch_queue.put(sentinel)
+            batch_queue.put(None)
 
     worker = threading.Thread(target=producer, name=thread_name, daemon=True)
     worker.start()
     try:
         while True:
             item = batch_queue.get()
-            if item is sentinel:
+            if item is None:
                 break
-            cpu_batch = item  # type: ignore[assignment]
-            batch = cpu_batch.to(device, non_blocking=pin_memory)
+            batch = item.to(device, non_blocking=pin_memory)
             yield Batch(input_ids=batch[:, :-1], targets=batch[:, 1:])
         if error_box:
             raise error_box[0]

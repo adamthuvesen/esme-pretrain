@@ -140,5 +140,5 @@ def test_checkpoint_load_rejects_extra_keys(tmp_path: Path) -> None:
     payload["unexpected_note"] = "do not accept unversioned schema drift"
     torch.save(payload, path)
 
-    with pytest.raises(ValueError, match="unexpected keys.*unexpected_note"):
+    with pytest.raises(ValueError, match=r"unexpected keys.*unexpected_note"):
         load_pretrain_checkpoint(path)

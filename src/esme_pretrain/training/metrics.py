@@ -15,7 +15,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 METRICS_FILE = "metrics.jsonl"
 THROUGHPUT_FILE = "throughput.csv"
@@ -28,12 +28,12 @@ class WandbSettings:
     project: str = "esme-pretrain"
     run_name: str | None = None
     run_id: str | None = None
-    resume: str | None = None
+    resume: Literal["allow", "never", "must", "auto"] | None = None
     entity: str | None = None
     config: dict[str, Any] = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     # Force a mode ("online" | "offline" | "disabled"); None = auto from WANDB_API_KEY.
-    mode: str | None = None
+    mode: Literal["online", "offline", "disabled", "shared"] | None = None
 
 
 class RunLogger:

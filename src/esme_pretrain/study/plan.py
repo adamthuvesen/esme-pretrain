@@ -9,12 +9,15 @@ run's past up to its own decay start, then decays over its last
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Literal
+
+from pydantic import Field, ValidationError, field_validator, model_validator
 
 from esme_pretrain.modeling.backbone import BackboneConfig
+from esme_pretrain.pretrain_config import parse_run_config
+from esme_pretrain.study.data_paths import StudyData, StudySettings, relative_volume_path
 from esme_pretrain.training.runtime import wsd_decay_start
 
 STAGES = ("smoke", "lr-gate", "study")
@@ -64,13 +67,87 @@ class StudyArm:
         return sum(run.flops for run in self.runs)
 
 
+PositiveInt = Annotated[int, Field(gt=0)]
+PositiveFloat = Annotated[float, Field(gt=0)]
+Stage = Literal["smoke", "lr-gate", "study"]
+
+
+class StudyOptimizer(StudySettings):
+    learning_rate: PositiveFloat
+    min_lr_ratio: Annotated[float, Field(ge=0, le=1)]
+    warmup_steps: Annotated[int, Field(ge=0)]
+    decay_fraction: Annotated[float, Field(ge=0, lt=1)]
+    weight_decay: Annotated[float, Field(ge=0)]
+    grad_clip: PositiveFloat
+    micro_batch_size: PositiveInt
+    grad_accum_steps: PositiveInt
+
+
+class StudyEval(StudySettings):
+    eval_token_budget: PositiveInt
+    batch_size: PositiveInt
+    expected_token_batch_sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
+class StudyHeldout(StudySettings):
+    volume: str
+    checkpoint: str
+    tokens: PositiveInt
+    fit_arms: tuple[str, ...]
+
+    @field_validator("checkpoint")
+    @classmethod
+    def safe_checkpoint_path(cls, value: str) -> str:
+        return relative_volume_path(value)
+
+
+class StudyShape(StudySettings):
+    embedding_dim: PositiveInt
+    layers: PositiveInt
+    heads: PositiveInt
+    kv_heads: PositiveInt
+    feedforward_dim: PositiveInt
+
+
+class ArmSpec(StudySettings):
+    arm: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")]
+    stage: Stage
+    shape: str
+    seed: int
+    steps: PositiveInt | None = None
+    tokens: PositiveInt | None = None
+    multiple: PositiveInt | PositiveFloat | None = None
+    learning_rate: PositiveFloat | None = None
+    warmup_steps: Annotated[int, Field(ge=0)] | None = None
+    branch_multiples: tuple[PositiveInt | PositiveFloat, ...] = ()
+    branch_steps: tuple[PositiveInt, ...] = ()
+
+    @model_validator(mode="after")
+    def one_budget(self) -> ArmSpec:
+        if sum(value is not None for value in (self.steps, self.tokens, self.multiple)) != 1:
+            raise ValueError(f"arm {self.arm}: set exactly one of steps, tokens, multiple")
+        return self
+
+
+class StudyConfig(StudySettings):
+    study_id: str
+    run_card: str
+    base_config: str
+    optimizer: StudyOptimizer
+    data: StudyData
+    eval: StudyEval
+    heldout: StudyHeldout
+    shapes: dict[str, StudyShape]
+    arms: tuple[ArmSpec, ...]
+
+
 @dataclass(frozen=True)
 class StudyPlan:
     study_id: str
-    optimizer: dict[str, Any]
-    data: dict[str, Any]
-    eval: dict[str, Any]
-    heldout: dict[str, Any]
+    optimizer: StudyOptimizer
+    data: StudyData
+    eval: StudyEval
+    heldout: StudyHeldout
     tokens_per_step: int
     arms: tuple[StudyArm, ...]
 
@@ -86,86 +163,101 @@ class StudyPlan:
         return selected
 
 
+def load_study_config(path: Path) -> StudyConfig:
+    try:
+        return StudyConfig.model_validate_json(path.read_text(encoding="utf-8"))
+    except ValidationError as error:
+        detail = error.errors(include_url=False)[0]
+        field = ".".join(str(part) for part in detail["loc"]) or "JSON"
+        raise ValueError(
+            f"invalid study config {path}: {field}: {detail['msg']}. Fix the study JSON."
+        ) from error
+    except OSError as error:
+        raise ValueError(f"cannot read study config {path}: {error}") from error
+
+
 def load_study_plan(path: Path) -> StudyPlan:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    base = json.loads(Path(payload["base_config"]).read_text(encoding="utf-8"))
-    return study_plan_from_payloads(payload, base)
+    config = load_study_config(path)
+    try:
+        base = parse_run_config(
+            Path(config.base_config).read_text(encoding="utf-8"), Path(config.base_config)
+        )
+    except OSError as error:
+        raise ValueError(f"cannot read base config {config.base_config}: {error}") from error
+    return study_plan(config, base.model)
 
 
-def study_plan_from_payloads(payload: dict[str, Any], base: dict[str, Any]) -> StudyPlan:
-    """Build the plan from the study config and its base run config, already parsed."""
-    optimizer = payload["optimizer"]
-    base_model = BackboneConfig.from_dict(base["model"])
+def study_plan(config: StudyConfig, base_model: BackboneConfig) -> StudyPlan:
+    optimizer = config.optimizer
     tokens_per_step = (
-        int(optimizer["micro_batch_size"])
-        * int(optimizer["grad_accum_steps"])
-        * base_model.context_length
+        optimizer.micro_batch_size * optimizer.grad_accum_steps * base_model.context_length
     )
-    shapes = payload["shapes"]
     arms = tuple(
         _expand_arm(
             entry,
-            shapes=shapes,
+            shapes=config.shapes,
             base_model=base_model,
             optimizer=optimizer,
             tokens_per_step=tokens_per_step,
         )
-        for entry in payload["arms"]
+        for entry in config.arms
     )
     names = [arm.arm for arm in arms]
     if len(set(names)) != len(names):
         raise ValueError("arm names must be unique")
     return StudyPlan(
-        study_id=payload["study_id"],
+        study_id=config.study_id,
         optimizer=optimizer,
-        data=payload["data"],
-        eval=payload["eval"],
-        heldout=payload["heldout"],
+        data=config.data,
+        eval=config.eval,
+        heldout=config.heldout,
         tokens_per_step=tokens_per_step,
         arms=arms,
     )
 
 
 def _expand_arm(
-    entry: dict[str, Any],
+    entry: ArmSpec,
     *,
-    shapes: dict[str, dict[str, int]],
+    shapes: dict[str, StudyShape],
     base_model: BackboneConfig,
-    optimizer: dict[str, Any],
+    optimizer: StudyOptimizer,
     tokens_per_step: int,
 ) -> StudyArm:
-    arm, stage = entry["arm"], entry["stage"]
+    arm, stage = entry.arm, entry.stage
     if stage not in STAGES:
         raise ValueError(f"arm {arm}: unknown stage {stage!r}")
-    if entry["shape"] not in shapes:
-        raise ValueError(f"arm {arm}: unknown shape {entry['shape']!r}")
-    model = replace(base_model, name=entry["shape"], **shapes[entry["shape"]])
+    if entry.shape not in shapes:
+        raise ValueError(f"arm {arm}: unknown shape {entry.shape!r}")
+    model = replace(base_model, name=entry.shape, **shapes[entry.shape].model_dump())
     non_embedding = model.parameter_count()["non_embedding"]
-    budgets = [key for key in ("steps", "tokens", "multiple") if key in entry]
-    if len(budgets) != 1:
-        raise ValueError(f"arm {arm}: set exactly one of steps, tokens, multiple")
-    if "steps" in entry:
-        max_steps = int(entry["steps"])
-    elif "tokens" in entry:
-        max_steps = round(int(entry["tokens"]) / tokens_per_step)
+    if entry.steps is not None:
+        max_steps = entry.steps
+    elif entry.tokens is not None:
+        max_steps = round(entry.tokens / tokens_per_step)
     else:
-        max_steps = round(float(entry["multiple"]) * non_embedding / tokens_per_step)
-    learning_rate = float(entry.get("learning_rate", optimizer["learning_rate"]))
-    seed = int(entry["seed"])
-    warmup_steps = int(entry.get("warmup_steps", optimizer["warmup_steps"]))
-    decay_fraction = float(optimizer["decay_fraction"])
+        assert entry.multiple is not None
+        max_steps = round(entry.multiple * non_embedding / tokens_per_step)
+    learning_rate = (
+        entry.learning_rate if entry.learning_rate is not None else optimizer.learning_rate
+    )
+    seed = entry.seed
+    warmup_steps = entry.warmup_steps if entry.warmup_steps is not None else optimizer.warmup_steps
+    decay_fraction = optimizer.decay_fraction
     if max_steps <= warmup_steps:
         raise ValueError(f"arm {arm}: {max_steps} steps do not exceed {warmup_steps} warmup steps")
 
     branch_specs = [
         (f"branch-{multiple}x", round(float(multiple) * non_embedding / tokens_per_step))
-        for multiple in entry.get("branch_multiples", [])
-    ] + [(f"branch-{steps}steps", int(steps)) for steps in entry.get("branch_steps", [])]
+        for multiple in entry.branch_multiples
+    ] + [(f"branch-{steps}steps", int(steps)) for steps in entry.branch_steps]
+    if len({name for name, _ in branch_specs}) != len(branch_specs):
+        raise ValueError(f"arm {arm}: branch names must be unique")
     branches = []
     for name, branch_steps in branch_specs:
         fork_step = wsd_decay_start(max_steps=branch_steps, decay_fraction=decay_fraction)
         main_decay_start = wsd_decay_start(max_steps=max_steps, decay_fraction=decay_fraction)
-        if not warmup_steps <= fork_step <= main_decay_start:
+        if not warmup_steps <= fork_step <= main_decay_start or branch_steps >= max_steps:
             raise ValueError(
                 f"arm {arm}: {name} forks at step {fork_step}, outside the main "
                 f"run's peak-LR phase [{warmup_steps}, {main_decay_start}]"
@@ -193,6 +285,8 @@ def _expand_arm(
         warmup_steps=warmup_steps,
         seed=seed,
         tokens_per_step=tokens_per_step,
-        checkpoint_steps=tuple(sorted(branch.fork_step for branch in branches)),
+        checkpoint_steps=tuple(
+            sorted({branch.fork_step for branch in branches if branch.fork_step is not None})
+        ),
     )
     return StudyArm(arm=arm, stage=stage, runs=(main, *branches))

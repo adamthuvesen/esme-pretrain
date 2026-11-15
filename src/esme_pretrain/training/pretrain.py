@@ -17,7 +17,7 @@ from dataclasses import asdict, dataclass, field
 from itertools import islice
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import Any, cast
 
 from esme_pretrain.modeling.backbone import BackboneConfig, DenseBackbone, language_model_loss
 from esme_pretrain.torch import torch
@@ -168,7 +168,7 @@ def _param_groups(model: torch.nn.Module, weight_decay: float) -> list[dict[str,
     tied to the LM head) pulls every token toward the origin. ``norms`` (1D) are
     already exempt. Everything else 2D (attention/MLP projections) decays.
     """
-    base = getattr(model, "_orig_mod", model)  # unwrap torch.compile to find the embedding
+    base = cast(DenseBackbone, getattr(model, "_orig_mod", model))
     embedding_param = base.token_embedding.weight
     decay, no_decay = [], []
     for parameter in model.parameters():
@@ -379,7 +379,7 @@ def run_pretrain(
         try:
             compute_loss = torch.compile(compute_loss)
             compiled = True
-        except Exception as error:  # noqa: BLE001 - compile is best-effort headroom
+        except Exception as error:  # compile is best-effort headroom
             notes.append(f"torch.compile unavailable, ran eager: {error}")
 
     fused = config.use_fused_optimizer and is_cuda
@@ -444,7 +444,7 @@ def run_pretrain(
         # The step's one host read: loss, grad norm, and loss components together, so a
         # non-finite step is refused before the optimizer applies it.
         names = list(step_components)
-        values = torch.stack(
+        values: list[float] = torch.stack(
             [grad_norm.float(), *(step_components[name].float() for name in names)]
         ).tolist()
         grad_norm_last = values[0]

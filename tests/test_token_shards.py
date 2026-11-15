@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -12,14 +13,18 @@ from esme_pretrain.torch import torch
 from esme_pretrain.training.eval_batch import hash_eval_batches
 from esme_pretrain.training.metrics import RunLogger, WandbSettings
 from esme_pretrain.training.pretrain import PretrainConfig, run_pretrain
-from esme_pretrain.training.shard_loader import ShardBatchLoader, fixed_validation_batches
+from esme_pretrain.training.shard_loader import (
+    ShardBatchLoader,
+    fixed_validation_batches,
+    fixed_validation_token_count,
+)
 
 EOS_ID = 0
 VOCAB_SIZE = 128
 
 
 class WhitespaceIdTokenizer:
-    def encode_batch(self, texts: list[str]) -> list[SimpleNamespace]:
+    def encode_batch(self, texts: list[str]) -> list[Any]:
         return [SimpleNamespace(ids=[int(word) for word in text.split()]) for text in texts]
 
 
@@ -41,28 +46,28 @@ def _flat_stream(documents: list[str]) -> list[int]:
     return flat
 
 
-def _write(output_dir: Path, documents: list[str], **overrides) -> dict:
-    kwargs = dict(
-        eos_id=EOS_ID,
-        vocab_size=VOCAB_SIZE,
-        tokenizer_sha256="0" * 64,
-        split="train",
-        output_dir=output_dir,
-        shard_tokens=53,
-        provenance={"source": "fixture"},
-    )
+def _write(output_dir: Path, documents: list[str], **overrides) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "eos_id": EOS_ID,
+        "vocab_size": VOCAB_SIZE,
+        "tokenizer_sha256": "0" * 64,
+        "split": "train",
+        "output_dir": output_dir,
+        "shard_tokens": 53,
+        "provenance": {"source": "fixture"},
+    }
     kwargs.update(overrides)
     return write_token_shards(documents, WhitespaceIdTokenizer(), **kwargs)
 
 
 def _loader(output_dir: Path, **overrides) -> ShardBatchLoader:
-    kwargs = dict(
-        vocab_size=VOCAB_SIZE,
-        tokenizer_sha256="0" * 64,
-        batch_size=2,
-        context_length=4,
-        device="cpu",
-    )
+    kwargs: dict[str, Any] = {
+        "vocab_size": VOCAB_SIZE,
+        "tokenizer_sha256": "0" * 64,
+        "batch_size": 2,
+        "context_length": 4,
+        "device": "cpu",
+    }
     kwargs.update(overrides)
     return ShardBatchLoader(manifest_path_for(output_dir, "train"), **kwargs)
 
@@ -248,18 +253,21 @@ def test_loader_refuses_shards_from_another_vocabulary_or_tokenizer(tmp_path: Pa
         _loader(tmp_path, tokenizer_sha256="1" * 64)
 
 
+@pytest.mark.parametrize("token_budget, expected_batches", [(24, 3), (25, 4)])
 def test_fixed_validation_batches_match_sequential_packing_and_check_the_hash(
     tmp_path: Path,
+    token_budget: int,
+    expected_batches: int,
 ) -> None:
     _write(tmp_path, _documents(200, seed=3), shard_tokens=10_000)
-    reference = _rows(_loader(tmp_path, batch_size=2))[:6]
-    kwargs = dict(
-        vocab_size=VOCAB_SIZE,
-        tokenizer_sha256="0" * 64,
-        context_length=4,
-        batch_size=2,
-        eval_token_budget=24,
-    )
+    reference = _rows(_loader(tmp_path, batch_size=2))[: 2 * expected_batches]
+    kwargs: dict[str, Any] = {
+        "vocab_size": VOCAB_SIZE,
+        "tokenizer_sha256": "0" * 64,
+        "context_length": 4,
+        "batch_size": 2,
+        "eval_token_budget": token_budget,
+    }
 
     batches = fixed_validation_batches(
         manifest_path_for(tmp_path, "train"), expected_token_batch_sha256=None, **kwargs
@@ -274,8 +282,56 @@ def test_fixed_validation_batches_match_sequential_packing_and_check_the_hash(
     again = fixed_validation_batches(
         manifest_path_for(tmp_path, "train"), expected_token_batch_sha256=digest, **kwargs
     )
-    assert len(again) == 3
+    assert len(again) == expected_batches
+    assert sum(batch.input_ids.numel() for batch in batches) == fixed_validation_token_count(
+        context_length=4, batch_size=2, eval_token_budget=token_budget
+    )
     with pytest.raises(ValueError, match="validation batches hash to"):
         fixed_validation_batches(
             manifest_path_for(tmp_path, "train"), expected_token_batch_sha256="0" * 64, **kwargs
         )
+
+
+def test_pretokenize_cli_serializes_validated_run_provenance(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    from tokenizers import Tokenizer
+    from tokenizers.models import WordLevel
+    from tokenizers.pre_tokenizers import Whitespace
+
+    from esme_pretrain.cli import main, pretokenize
+
+    tokenizer = Tokenizer(WordLevel({"<unk>": 0, "<eos>": 1, "text": 2}, unk_token="<unk>"))
+    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer_path = tmp_path / "tokenizer.json"
+    tokenizer.save(str(tokenizer_path))
+
+    def corpus(*_args, **_kwargs):
+        yield " ".join(["text"] * 12)
+
+    monkeypatch.setattr(pretokenize, "document_text_stream", corpus)
+    output_dir = tmp_path / "shards"
+    assert (
+        main(
+            [
+                "pretokenize",
+                "--config",
+                "configs/pretrain_214m_b200.json",
+                "--tokenizer",
+                str(tokenizer_path),
+                "--output-dir",
+                str(output_dir),
+                "--split",
+                "train",
+                "--max-tokens",
+                "10",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    manifest = json.loads((output_dir / "train-manifest.json").read_text())
+    assert result["manifest"]["total_tokens"] == manifest["total_tokens"] == 10
+    assert manifest["provenance"]["dataset"]["filters"] == {"min_int_score": 3}
+    assert manifest["provenance"]["split_config"]["validation_modulo"] == 100

@@ -194,7 +194,7 @@ def test_sample_checkpoint_uses_real_checkpoint_and_tokenizer(tmp_path: Path) ->
 def test_checkpoint_sample_rejects_prompt_above_context() -> None:
     with pytest.raises(ValueError, match="above checkpoint context length 4"):
         generate_completion(
-            _SampleModel(),
+            _SampleModel(),  # pyright: ignore[reportArgumentType]  # a minimal fake stands in for the model
             _SampleTokenizer(),
             "12345",
             max_new_tokens=1,
@@ -263,7 +263,7 @@ def test_eval_refuses_batches_that_differ_from_the_reference_hash(
     monkeypatch.setattr(
         eval_checkpoints,
         "load_pretrain_config",
-        lambda _path: SimpleNamespace(payload={"model": config.to_dict()}),
+        lambda _path: SimpleNamespace(model_config=config),
     )
     monkeypatch.setattr(eval_checkpoints, "load_tokenizer", lambda _path: object())
     monkeypatch.setattr(
@@ -287,7 +287,8 @@ def test_eval_refuses_batches_that_differ_from_the_reference_hash(
 
 def test_token_byte_counts_use_utf8_lengths() -> None:
     class Encoding:
-        offsets = [(0, 1), (1, 2), (2, 3)]
+        def __init__(self) -> None:
+            self.offsets = [(0, 1), (1, 2), (2, 3)]
 
     assert token_byte_counts("aøb", Encoding(), token_count=3) == [1, 2, 1]
 
@@ -296,7 +297,8 @@ def test_token_byte_counts_count_a_split_character_once() -> None:
     # Byte-level BPE can split one 4-byte character across two tokens that both carry
     # the character's offsets. Counting each span would report 8 bytes and lower BPB.
     class Encoding:
-        offsets = [(0, 1), (0, 1)]
+        def __init__(self) -> None:
+            self.offsets = [(0, 1), (0, 1)]
 
     assert token_byte_counts("😀", Encoding(), token_count=2) == [0, 4]
 
@@ -317,7 +319,7 @@ def test_tokenized_validation_stream_uses_shared_corpus_stream(monkeypatch) -> N
 
     monkeypatch.setattr(eval_checkpoints, "document_text_stream", fake_document_text_stream)
 
-    tokens = list(eval_checkpoints.tokenized_validation_stream(config, FakeTokenizer(), eos_id=0))
+    tokens = list(eval_checkpoints.tokenized_validation_stream(config, FakeTokenizer(), eos_id=0))  # pyright: ignore[reportArgumentType]  # fakes stand in for the config and tokenizer
 
     assert tokens == [(7, 1), (8, 2), (0, 0)]
     assert captured == {"config": config, "split": "validation"}

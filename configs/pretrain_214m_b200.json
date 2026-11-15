@@ -110,7 +110,7 @@
     "runtime_spend_stop_usd": 100,
     "allow_retries": false,
     "modal_volume": "esme-pretrain-214m-b200",
-    "timeout_hours": 24
+    "timeout_hours": 16
   },
   "monitoring": {
     "log_interval": 10,

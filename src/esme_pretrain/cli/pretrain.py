@@ -5,11 +5,12 @@ import json
 import sys
 from pathlib import Path
 
+from esme_pretrain.cli.subparsers import Subparsers
 from esme_pretrain.launch.pretrain import build_pretrain_dry_run
 from esme_pretrain.pretrain_run import load_pretrain_config
 
 
-def add_pretrain_parser(subparsers: argparse._SubParsersAction) -> None:
+def add_pretrain_parser(subparsers: Subparsers) -> None:
     pretrain_214m_b200 = subparsers.add_parser(
         "pretrain-214m-b200",
         help=("Validate the 214M B200 pretrain config without launching external work."),

@@ -6,6 +6,7 @@ import sys
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -41,25 +42,31 @@ def _loader(seed: int) -> StreamingBatchLoader:
 
 
 def _config(output_dir: Path, **overrides) -> PretrainConfig:
-    base = dict(
-        model=_model(),
-        max_steps=8,
-        micro_batch_size=4,
-        grad_accum_steps=2,
-        learning_rate=1e-3,
-        warmup_steps=2,
-        device="cpu",
-        use_compile=False,
-        use_fused_optimizer=False,
-        log_interval=2,
-        output_dir=output_dir,
-    )
+    base: dict[str, Any] = {
+        "model": _model(),
+        "max_steps": 8,
+        "micro_batch_size": 4,
+        "grad_accum_steps": 2,
+        "learning_rate": 1e-3,
+        "warmup_steps": 2,
+        "device": "cpu",
+        "use_compile": False,
+        "use_fused_optimizer": False,
+        "log_interval": 2,
+        "output_dir": output_dir,
+    }
     base.update(overrides)
     return PretrainConfig(**base)
 
 
 def test_wsd_lr_warmup_stable_then_decays() -> None:
-    kwargs = dict(warmup_steps=3, max_steps=10, max_lr=1.0, min_lr=0.1, decay_fraction=0.2)
+    kwargs: dict[str, Any] = {
+        "warmup_steps": 3,
+        "max_steps": 10,
+        "max_lr": 1.0,
+        "min_lr": 0.1,
+        "decay_fraction": 0.2,
+    }
     # decay_fraction 0.2 of 10 steps -> decay over the last 2 steps (decay_start=8).
     assert wsd_lr(0, **kwargs) < wsd_lr(1, **kwargs)  # warmup ramps up
     assert wsd_lr(2, **kwargs) == 1.0  # peak reached at end of warmup
@@ -71,7 +78,13 @@ def test_wsd_lr_warmup_stable_then_decays() -> None:
 
 
 def test_wsd_lr_with_zero_decay_holds_peak_until_the_end() -> None:
-    kwargs = dict(warmup_steps=2, max_steps=10, max_lr=1.0, min_lr=0.1, decay_fraction=0.0)
+    kwargs: dict[str, Any] = {
+        "warmup_steps": 2,
+        "max_steps": 10,
+        "max_lr": 1.0,
+        "min_lr": 0.1,
+        "decay_fraction": 0.0,
+    }
     assert wsd_lr(5, **kwargs) == 1.0  # stable all the way through
     assert wsd_lr(9, **kwargs) == 1.0  # last in-range step still at peak
     assert math.isclose(wsd_lr(10, **kwargs), 0.1)  # floors at min_lr
@@ -182,7 +195,7 @@ def test_resume_rejects_optimizer_schedule_drift(tmp_path: Path) -> None:
     logger.finish()
 
     extended = _config(tmp_path, max_steps=7, resume_from=tmp_path / "checkpoint.pt")
-    with pytest.raises(ValueError, match="optimizer schedule does not match.*max_steps"):
+    with pytest.raises(ValueError, match=r"optimizer schedule does not match.*max_steps"):
         run_pretrain(extended, _loader(1))
 
 
@@ -256,7 +269,7 @@ def test_checkpoint_load_rejects_missing_model_state(tmp_path: Path) -> None:
         checkpoint,
     )
 
-    with pytest.raises(ValueError, match="missing keys.*model_state"):
+    with pytest.raises(ValueError, match=r"missing keys.*model_state"):
         load_pretrain_checkpoint(checkpoint)
 
 
@@ -426,7 +439,7 @@ def test_cooldown_branch_equals_a_from_scratch_run_of_its_schedule(tmp_path: Pat
     # the shared peak-LR phase must reproduce the from-scratch run exactly: same
     # weights, optimizer state, data offset, and LR at every step.
     scratch_dir, main_dir, branch_dir = tmp_path / "scratch", tmp_path / "main", tmp_path / "branch"
-    schedule = dict(warmup_steps=2, decay_fraction=0.2, learning_rate=1e-3)
+    schedule = {"warmup_steps": 2, "decay_fraction": 0.2, "learning_rate": 1e-3}
     scratch = _config(scratch_dir, max_steps=10, **schedule)
     run_pretrain(scratch, _loader(5), logger=RunLogger(scratch_dir, WandbSettings(enabled=False)))
     main = _config(main_dir, max_steps=20, checkpoint_steps=(8,), **schedule)

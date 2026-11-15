@@ -10,7 +10,9 @@ from esme_pretrain.baselines.report import build_comparison
 from esme_pretrain.cli import main
 
 
-def _result_payload(name: str, *, kind: str = "hf", bpb: float = 1.2, acc: float = 0.5) -> dict:
+def _result_payload(
+    name: str, *, kind: str = "hf", bpb: float = 1.2, acc: float = 0.5
+) -> dict[str, Any]:
     model: dict[str, Any] = {"name": name, "kind": kind}
     if kind == "hf":
         model.update(repo=f"org/{name}", revision="a" * 40)
@@ -56,7 +58,7 @@ def _result_payload(name: str, *, kind: str = "hf", bpb: float = 1.2, acc: float
     }
 
 
-def _write_results(tmp_path: Path, payloads: list[dict]) -> list[Path]:
+def _write_results(tmp_path: Path, payloads: list[dict[str, Any]]) -> list[Path]:
     paths = []
     for payload in payloads:
         path = tmp_path / f"{payload['model']['name']}.json"

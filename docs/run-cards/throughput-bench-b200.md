@@ -90,8 +90,9 @@ uv run modal volume ls esme-pretrain-bench /shards
 # 3. No-spend check: config, commits, and the worst-case budget.
 uv run python scripts/modal_throughput_bench.py --spend-cap-usd 10 --check-only
 
-# 4. The benchmark (rents one B200).
-uv run python scripts/modal_throughput_bench.py --spend-cap-usd 10 --approved
+# 4. The benchmark (rents one B200). This refuses and prints the approved form
+#    for Adam to run.
+uv run python scripts/modal_throughput_bench.py --spend-cap-usd 10
 ```
 
 Step 2's `ls` must show `/shards/train-manifest.json` and

@@ -9,14 +9,40 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
         with:
+          version: "0.13.5"
           enable-cache: true
 
       - name: Install dev dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
-      - name: Lint and unit tests
+      - name: Lint, types, imports, and fast tests
         run: make check
+
+  verify:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # the throughput-bench drive resolves a pinned older commit
+
+      - uses: astral-sh/setup-uv@d31148d669074a8d0a63714ba94f3201e7020bc3 # v8.3.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+
+      - name: Install dev dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Slow offline tests
+        run: make slow
+
+      - name: Drive training and launch entrypoints offline
+        run: make verify ARGS=all
+
+      - name: Verify control observes FAIL
+        run: make verify ARGS=control

@@ -6,8 +6,9 @@ See ``docs/architecture.md`` for design rationale.
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, replace
-from typing import Any
+from typing import Any, cast
 
 from esme_pretrain.modeling.layers import RMSNorm, SwiGLU, apply_rope, build_rope_cache
 from esme_pretrain.torch import torch
@@ -64,10 +65,35 @@ class BackboneConfig:
     attention_kind: str = "gqa"
 
     def __post_init__(self) -> None:
+        for field_name in (
+            "vocab_size",
+            "context_length",
+            "embedding_dim",
+            "layers",
+            "heads",
+            "feedforward_dim",
+        ):
+            value = getattr(self, field_name)
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{field_name} must be a positive integer")
+        if self.kv_heads is not None and (type(self.kv_heads) is not int or self.kv_heads < 1):
+            raise ValueError("kv_heads must be a positive integer when set")
+        for field_name in ("rope_theta", "rms_norm_eps", "z_loss_weight"):
+            value = getattr(self, field_name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+            ):
+                raise ValueError(f"{field_name} must be a finite number")
+        if self.rope_theta <= 0:
+            raise ValueError("rope_theta must be positive")
+        if self.rms_norm_eps <= 0:
+            raise ValueError("rms_norm_eps must be positive")
         if self.embedding_dim % self.heads != 0:
             raise ValueError("embedding_dim must be divisible by heads")
-        if self.effective_kv_heads < 1:
-            raise ValueError("kv_heads must be at least 1")
+        if self.head_dim % 2:
+            raise ValueError("head_dim (embedding_dim / heads) must be even for RoPE")
         if self.heads % self.effective_kv_heads != 0:
             raise ValueError("heads must be divisible by kv_heads")
         if self.context_length < 2:
@@ -91,7 +117,7 @@ class BackboneConfig:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> BackboneConfig:
         payload = _drop_removed_disabled_keys(payload)
-        fields = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
+        fields = set(cls.__dataclass_fields__)
         unknown = set(payload) - fields
         if unknown:
             raise ValueError(f"unknown backbone config keys: {sorted(unknown)}")
@@ -145,7 +171,8 @@ class GroupedQueryAttention(torch.nn.Module):
         self.q_norm = RMSNorm(self.head_dim, config.rms_norm_eps) if config.qk_norm else None
         self.k_norm = RMSNorm(self.head_dim, config.rms_norm_eps) if config.qk_norm else None
 
-    def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    # PyTorch declares Module.forward as a mutable Callable attribute.
+    def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         batch, seq, _ = hidden.shape
         query = self.wq(hidden).view(batch, seq, self.heads, self.head_dim).transpose(1, 2)
         key = self.wk(hidden).view(batch, seq, self.kv_heads, self.head_dim).transpose(1, 2)
@@ -169,13 +196,17 @@ class DecoderBlock(torch.nn.Module):
         self.feedforward_norm = RMSNorm(config.embedding_dim, config.rms_norm_eps)
         self.feedforward = SwiGLU(config.embedding_dim, config.feedforward_dim)
 
-    def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
+    # PyTorch declares Module.forward as a mutable Callable attribute.
+    def forward(self, hidden: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         hidden = hidden + self.attention(self.attention_norm(hidden), cos, sin)
         return hidden + self.feedforward(self.feedforward_norm(hidden))
 
 
 class DenseBackbone(torch.nn.Module):
     """The trainable decoder-only transformer for the accepted 214M run."""
+
+    rope_cos: torch.Tensor
+    rope_sin: torch.Tensor
 
     def __init__(self, config: BackboneConfig) -> None:
         super().__init__()
@@ -210,10 +241,12 @@ class DenseBackbone(torch.nn.Module):
         scale = (2.0 * self.config.layers) ** -0.5
         with torch.no_grad():
             for block in self.blocks:
+                block = cast(DecoderBlock, block)
                 block.attention.wo.weight.mul_(scale)
                 block.feedforward.w_down.weight.mul_(scale)
 
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+    # PyTorch declares Module.forward as a mutable Callable attribute.
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:  # ty: ignore[invalid-mutable-override]
         """Return raw logits."""
         if input_ids.ndim != 2:
             raise ValueError("input ids must have shape [batch, sequence]")

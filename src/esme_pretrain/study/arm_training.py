@@ -13,10 +13,15 @@ import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
-from esme_pretrain.postrun.eval_checkpoints import file_sha256
+from esme_pretrain.artifacts.hashes import file_sha256
+from esme_pretrain.study.data_paths import StudyDataPaths
 from esme_pretrain.study.plan import MAIN_RUN, StudyArm, StudyPlan, StudyRun
+from esme_pretrain.study.results import (
+    StudyProvenance,
+    StudyResultRow,
+    validate_evaluation_identity,
+)
 from esme_pretrain.torch import torch
 from esme_pretrain.training.checkpointing import load_pretrain_checkpoint
 from esme_pretrain.training.data_stream import Batch
@@ -29,22 +34,19 @@ from esme_pretrain.training.shard_loader import ShardBatchLoader, fixed_validati
 def study_validation_batches(
     plan: StudyPlan,
     *,
-    shard_dir: Path,
-    tokenizer_sha256: str,
+    data_paths: StudyDataPaths,
     vocab_size: int,
     context_length: int,
     device: str,
-    eval_token_budget: int,
-    expected_token_batch_sha256: str | None,
 ) -> list[Batch]:
     return fixed_validation_batches(
-        shard_dir / Path(plan.data["validation_manifest"]).name,
+        data_paths.validation_manifest,
         vocab_size=vocab_size,
-        tokenizer_sha256=tokenizer_sha256,
+        tokenizer_sha256=file_sha256(data_paths.tokenizer),
         context_length=context_length,
-        batch_size=int(plan.eval["batch_size"]),
-        eval_token_budget=eval_token_budget,
-        expected_token_batch_sha256=expected_token_batch_sha256,
+        batch_size=int(plan.eval.batch_size),
+        eval_token_budget=plan.eval.eval_token_budget,
+        expected_token_batch_sha256=plan.eval.expected_token_batch_sha256,
         device=device,
     )
 
@@ -71,8 +73,7 @@ def train_study_arm(
     arm: StudyArm,
     plan: StudyPlan,
     *,
-    shard_dir: Path,
-    tokenizer_path: Path,
+    data_paths: StudyDataPaths,
     work_dir: Path,
     results_dir: Path,
     validation_batches: list[Batch],
@@ -80,9 +81,19 @@ def train_study_arm(
     dtype: str = "bfloat16",
     use_compile: bool = True,
     commit_results: Callable[[], None],
-    provenance: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    tokenizer_sha256 = file_sha256(tokenizer_path)
+    provenance: StudyProvenance | None = None,
+) -> list[StudyResultRow]:
+    tokenizer_sha256 = file_sha256(data_paths.tokenizer)
+    eval_tokens = sum(int(batch.input_ids.numel()) for batch in validation_batches)
+    eval_sha256 = hash_eval_batches(validation_batches)
+    validate_evaluation_identity(
+        source=f"validation batches for {arm.arm}",
+        plan=plan,
+        context_length=arm.runs[0].model.context_length,
+        token_count=eval_tokens,
+        token_batch_sha256=eval_sha256,
+        batch_count=len(validation_batches),
+    )
     arm_results = results_dir / arm.arm
     arm_results.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -100,13 +111,13 @@ def train_study_arm(
             use_compile=use_compile,
         )
         loader = ShardBatchLoader(
-            shard_dir / Path(plan.data["train_manifest"]).name,
+            data_paths.train_manifest,
             vocab_size=run.model.vocab_size,
             tokenizer_sha256=tokenizer_sha256,
             batch_size=config.micro_batch_size,
             context_length=run.model.context_length,
             device=device,
-            shuffle_seed=int(plan.data["shuffle_seed"]),
+            shuffle_seed=int(plan.data.shuffle_seed),
         )
         logger = RunLogger(output_dir, WandbSettings(enabled=False))
         result = run_pretrain(config, loader, logger=logger)
@@ -116,37 +127,39 @@ def train_study_arm(
                 f"{arm.arm}/{run.run}: trained {result.steps_completed} steps, "
                 f"planned {run.trained_steps}; notes: {result.notes}"
             )
-        row = {
-            "study_id": plan.study_id,
-            "arm": arm.arm,
-            "stage": arm.stage,
-            "run": run.run,
-            "arm_runs": [arm_run.run for arm_run in arm.runs],
-            "shape": run.model.name,
-            "non_embedding_params": run.non_embedding_params,
-            "total_params": run.model.parameter_count()["total"],
-            "tokens": run.tokens,
-            "max_steps": run.max_steps,
-            "fork_step": run.fork_step,
-            "learning_rate": run.learning_rate,
-            "warmup_steps": run.warmup_steps,
-            "seed": run.seed,
-            "val_ce": validation_ce(
-                output_dir / "checkpoint.pt", validation_batches, device=device
-            ),
-            "val_eval_tokens": sum(int(b.input_ids.numel()) for b in validation_batches),
-            "val_token_batch_sha256": hash_eval_batches(validation_batches),
-            "train_loss_last": result.train_loss_last,
-            "steady_tokens_per_second": result.steady_tokens_per_second,
-            "mfu": result.mfu,
-            "peak_memory_gb": result.peak_memory_gb,
-            "wall_seconds": time.perf_counter() - started,
-            "notes": result.notes,
-            "torch_version": torch.__version__,
-            **(provenance or {}),
-        }
+        row = StudyResultRow(
+            study_id=plan.study_id,
+            arm=arm.arm,
+            stage=arm.stage,
+            run=run.run,
+            arm_runs=tuple(arm_run.run for arm_run in arm.runs),
+            shape=run.model.name,
+            non_embedding_params=run.non_embedding_params,
+            total_params=run.model.parameter_count()["total"],
+            tokens=run.tokens,
+            max_steps=run.max_steps,
+            fork_step=run.fork_step,
+            learning_rate=run.learning_rate,
+            warmup_steps=run.warmup_steps,
+            seed=run.seed,
+            val_ce=validation_ce(output_dir / "checkpoint.pt", validation_batches, device=device),
+            val_eval_tokens=eval_tokens,
+            val_eval_batches=len(validation_batches),
+            val_token_batch_sha256=eval_sha256,
+            train_loss_last=result.train_loss_last,
+            steady_tokens_per_second=result.steady_tokens_per_second,
+            mfu=result.mfu,
+            peak_memory_gb=result.peak_memory_gb,
+            wall_seconds=time.perf_counter() - started,
+            notes=tuple(result.notes),
+            torch_version=torch.__version__,
+            study_run_id=provenance.study_run_id if provenance is not None else None,
+            commit=provenance.commit if provenance is not None else None,
+            gpu_name=provenance.gpu_name if provenance is not None else None,
+        )
         (arm_results / f"{run.run}.json").write_text(
-            json.dumps(row, indent=2, sort_keys=True), encoding="utf-8"
+            json.dumps(row.model_dump(mode="json", exclude_unset=True), indent=2, sort_keys=True),
+            encoding="utf-8",
         )
         shutil.copyfile(output_dir / "metrics.jsonl", arm_results / f"{run.run}-metrics.jsonl")
         commit_results()
@@ -172,14 +185,14 @@ def _pretrain_config(
     return PretrainConfig(
         model=run.model,
         max_steps=run.max_steps,
-        micro_batch_size=int(optimizer["micro_batch_size"]),
-        grad_accum_steps=int(optimizer["grad_accum_steps"]),
+        micro_batch_size=int(optimizer.micro_batch_size),
+        grad_accum_steps=int(optimizer.grad_accum_steps),
         learning_rate=run.learning_rate,
-        min_lr_ratio=float(optimizer["min_lr_ratio"]),
-        decay_fraction=float(optimizer["decay_fraction"]),
+        min_lr_ratio=float(optimizer.min_lr_ratio),
+        decay_fraction=float(optimizer.decay_fraction),
         warmup_steps=run.warmup_steps,
-        weight_decay=float(optimizer["weight_decay"]),
-        grad_clip=float(optimizer["grad_clip"]),
+        weight_decay=float(optimizer.weight_decay),
+        grad_clip=float(optimizer.grad_clip),
         dtype=dtype,
         device=device,
         use_compile=use_compile,

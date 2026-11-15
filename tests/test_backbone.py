@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from esme_pretrain.modeling.backbone import (
     BackboneConfig,
     DenseBackbone,
+    GroupedQueryAttention,
     baseline_config,
     language_model_loss,
 )
@@ -13,15 +16,15 @@ from esme_pretrain.torch import torch
 
 
 def _small_config(**overrides) -> BackboneConfig:
-    base = dict(
-        name="small-test",
-        vocab_size=128,
-        context_length=32,
-        embedding_dim=64,
-        layers=2,
-        heads=4,
-        feedforward_dim=128,
-    )
+    base: dict[str, Any] = {
+        "name": "small-test",
+        "vocab_size": 128,
+        "context_length": 32,
+        "embedding_dim": 64,
+        "layers": 2,
+        "heads": 4,
+        "feedforward_dim": 128,
+    }
     base.update(overrides)
     return BackboneConfig(**base)
 
@@ -155,8 +158,8 @@ def test_z_loss_increases_total_loss() -> None:
     model = DenseBackbone(config)
     logits = model(torch.randint(0, config.vocab_size, (2, 16)))
     targets = torch.randint(0, config.vocab_size, (2, 16))
-    plain, plain_parts = language_model_loss(logits, targets, z_loss_weight=0.0)
-    with_z, z_parts = language_model_loss(logits, targets, z_loss_weight=1e-2)
+    _plain, plain_parts = language_model_loss(logits, targets, z_loss_weight=0.0)
+    _with_z, z_parts = language_model_loss(logits, targets, z_loss_weight=1e-2)
     assert "z_loss" not in plain_parts
     assert z_parts["z_loss"].item() > 0.0
     assert z_parts["total_loss"].item() > plain_parts["total_loss"].item()
@@ -180,6 +183,7 @@ def test_native_gqa_matches_repeated_kv_heads() -> None:
     torch.manual_seed(0)
     config = _small_config(heads=4, kv_heads=2)
     attention = DenseBackbone(config).blocks[0].attention
+    assert isinstance(attention, GroupedQueryAttention)
     hidden = torch.randn(2, 8, config.embedding_dim)
     cos, sin = build_rope_cache(8, config.head_dim, config.rope_theta, torch.device("cpu"))
 
@@ -187,6 +191,7 @@ def test_native_gqa_matches_repeated_kv_heads() -> None:
     query = attention.wq(hidden).view(batch, seq, 4, config.head_dim).transpose(1, 2)
     key = attention.wk(hidden).view(batch, seq, 2, config.head_dim).transpose(1, 2)
     value = attention.wv(hidden).view(batch, seq, 2, config.head_dim).transpose(1, 2)
+    assert attention.q_norm is not None and attention.k_norm is not None
     query, key = attention.q_norm(query), attention.k_norm(key)
     query, key = apply_rope(query, key, cos, sin)
     reference = torch.nn.functional.scaled_dot_product_attention(
@@ -205,6 +210,43 @@ def test_unknown_attention_kind_rejected() -> None:
 def test_gqa_requires_kv_heads_to_divide_query_heads() -> None:
     with pytest.raises(ValueError, match="divisible"):
         _small_config(attention_kind="gqa", kv_heads=3)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "vocab_size",
+        "context_length",
+        "embedding_dim",
+        "layers",
+        "heads",
+        "feedforward_dim",
+        "kv_heads",
+    ],
+)
+@pytest.mark.parametrize("value", [0, -1, 1.5, True])
+def test_structural_dimensions_reject_invalid_values(field_name, value) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        _small_config(**{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["rope_theta", "rms_norm_eps", "z_loss_weight"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), True])
+def test_numeric_model_settings_must_be_finite(field_name, value) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        _small_config(**{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["rope_theta", "rms_norm_eps"])
+@pytest.mark.parametrize("value", [0, -1])
+def test_rope_and_norm_settings_must_be_positive(field_name, value) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        _small_config(**{field_name: value})
+
+
+def test_rope_requires_even_head_dimension() -> None:
+    with pytest.raises(ValueError, match=r"head_dim.*even"):
+        _small_config(embedding_dim=12, heads=4)
 
 
 def test_config_round_trip_and_rejects_unknown_keys() -> None:
